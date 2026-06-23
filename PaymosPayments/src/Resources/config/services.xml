@@ -1,0 +1,71 @@
+<?xml version="1.0" ?>
+<container xmlns="http://symfony.com/schema/dic/services"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://symfony.com/schema/dic/services http://symfony.com/schema/dic/services/services-1.0.xsd">
+
+    <services>
+        <!-- Production Shopware gateway: drives the order-transaction state machine. -->
+        <service id="PaymosPayments\Service\ShopwareGateway">
+            <argument type="service" id="Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStateHandler"/>
+            <argument type="service" id="Doctrine\DBAL\Connection"/>
+            <argument type="service" id="logger"/>
+        </service>
+
+        <!-- DBAL-backed invoice snapshot store. -->
+        <service id="PaymosPayments\Service\PaymosInvoiceStore">
+            <argument type="service" id="Doctrine\DBAL\Connection"/>
+        </service>
+
+        <!-- Race-proof webhook dedup ledger (event_id PRIMARY KEY). -->
+        <service id="PaymosPayments\Service\EventStore">
+            <argument type="service" id="Doctrine\DBAL\Connection"/>
+        </service>
+
+        <!-- Checkout: builds the invoice payload and creates it via the SDK. -->
+        <service id="PaymosPayments\Service\CheckoutProcessor">
+            <argument type="service" id="PaymosPayments\Service\PaymosInvoiceStore"/>
+        </service>
+
+        <!-- Webhook: verify -> reverse-verify -> map -> transition. -->
+        <service id="PaymosPayments\Service\WebhookProcessor">
+            <argument type="service" id="PaymosPayments\Service\ShopwareGateway"/>
+            <argument type="service" id="PaymosPayments\Service\PaymosInvoiceStore"/>
+            <argument type="service" id="PaymosPayments\Service\EventStore"/>
+        </service>
+
+        <!-- Payment handler (async, 6.5/6.6 tag). -->
+        <service id="PaymosPayments\Service\PaymosPaymentHandler">
+            <argument type="service" id="PaymosPayments\Service\CheckoutProcessor"/>
+            <argument type="service" id="PaymosPayments\Service\ShopwareGateway"/>
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <argument type="service" id="logger"/>
+            <tag name="shopware.payment.method.async"/>
+        </service>
+
+        <!-- Webhook controller (public + setContainer, per Shopware controller docs). -->
+        <service id="PaymosPayments\Storefront\Controller\WebhookController" public="true">
+            <argument type="service" id="PaymosPayments\Service\WebhookProcessor"/>
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <call method="setContainer">
+                <argument type="service" id="service_container"/>
+            </call>
+        </service>
+
+        <!-- Return bridge controller: hands the buyer back into Shopware's
+             finalize flow after the hosted Paymos checkout (public + setContainer). -->
+        <service id="PaymosPayments\Storefront\Controller\PaymosReturnController" public="true">
+            <argument type="service" id="PaymosPayments\Service\PaymosInvoiceStore"/>
+            <argument type="service" id="PaymosPayments\Service\ShopwareGateway"/>
+            <call method="setContainer">
+                <argument type="service" id="service_container"/>
+            </call>
+        </service>
+
+        <!-- Reconcile console command (cron for missed-webhook recovery). -->
+        <service id="PaymosPayments\Command\ReconcileCommand">
+            <argument type="service" id="PaymosPayments\Service\ShopwareGateway"/>
+            <argument type="service" id="PaymosPayments\Service\PaymosInvoiceStore"/>
+            <tag name="console.command"/>
+        </service>
+    </services>
+</container>

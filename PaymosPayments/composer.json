@@ -1,0 +1,35 @@
+{
+    "name": "paymos/shopware6-payments",
+    "description": "Paymos hosted-checkout crypto payment plugin for Shopware 6 (6.5 and 6.6). Accept USDT and USDC at checkout.",
+    "version": "1.0.0",
+    "type": "shopware-platform-plugin",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Paymos",
+            "homepage": "https://paymos.io"
+        }
+    ],
+    "require": {
+        "php": ">=8.2",
+        "shopware/core": "~6.5.7 || ~6.6.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "PaymosPayments\\": "src/"
+        }
+    },
+    "extra": {
+        "shopware-plugin-class": "PaymosPayments\\PaymosPayments",
+        "label": {
+            "en-GB": "Paymos Crypto Payments",
+            "de-DE": "Paymos Krypto-Zahlungen",
+            "ru-RU": "Paymos: приём криптовалюты"
+        },
+        "description": {
+            "en-GB": "Accept USDT and USDC on Shopware 6. Customers pay with stablecoins at checkout; the order is marked paid when the payment confirms on-chain.",
+            "de-DE": "Akzeptieren Sie USDT und USDC in Shopware 6. Kunden zahlen an der Kasse mit Stablecoins; die Bestellung wird als bezahlt markiert, sobald die Zahlung on-chain bestätigt ist.",
+            "ru-RU": "Приём USDT и USDC в Shopware 6. Покупатели платят стейблкоинами на оформлении заказа; заказ помечается оплаченным после подтверждения платежа в сети."
+        }
+    }
+}

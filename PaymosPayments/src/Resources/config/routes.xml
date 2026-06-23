@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<routes xmlns="http://symfony.com/schema/routing"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://symfony.com/schema/routing https://symfony.com/schema/routing/routing-1.0.xsd">
+
+    <!-- Attribute routing works on both Symfony 6.4 (Shopware 6.5) and
+         Symfony 7 (Shopware 6.6). The 6.4-only "annotation" type is avoided. -->
+    <import resource="../../Storefront/Controller/" type="attribute"/>
+</routes>

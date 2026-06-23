@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/shopware/shopware/v6.6.0.0/src/Core/System/SystemConfig/Schema/config.xsd">
+
+    <card>
+        <title>Paymos</title>
+        <title lang="de-DE">Paymos</title>
+        <title lang="ru-RU">Paymos</title>
+
+        <input-field type="single-select">
+            <name>mode</name>
+            <label>Mode</label>
+            <label lang="de-DE">Modus</label>
+            <label lang="ru-RU">Режим</label>
+            <helpText>Sandbox uses your test credentials; Live uses production. Both sets of credentials ship inside the plugin ZIP generated from the Paymos dashboard.</helpText>
+            <helpText lang="de-DE">Sandbox nutzt Ihre Testzugangsdaten, Live die Produktivdaten. Beide Schlüsselsätze sind im aus dem Paymos-Dashboard generierten Plugin-ZIP enthalten.</helpText>
+            <helpText lang="ru-RU">Sandbox использует тестовые ключи, Live — боевые. Оба набора ключей входят в ZIP плагина, сгенерированный в панели Paymos.</helpText>
+            <defaultValue>sandbox</defaultValue>
+            <options>
+                <option>
+                    <id>sandbox</id>
+                    <name>Sandbox (test)</name>
+                    <name lang="de-DE">Sandbox (Test)</name>
+                    <name lang="ru-RU">Sandbox (тест)</name>
+                </option>
+                <option>
+                    <id>live</id>
+                    <name>Live (production)</name>
+                    <name lang="de-DE">Live (Produktion)</name>
+                    <name lang="ru-RU">Live (боевой)</name>
+                </option>
+            </options>
+        </input-field>
+
+        <input-field type="bool">
+            <name>debugLogging</name>
+            <label>Debug logging</label>
+            <label lang="de-DE">Debug-Protokollierung</label>
+            <label lang="ru-RU">Журнал отладки</label>
+            <helpText>Log routine webhook diagnostics (duplicates, out-of-order events) to the Shopware log. Operational errors are always logged.</helpText>
+            <helpText lang="de-DE">Protokolliert routinemäßige Webhook-Diagnosen (Duplikate, Ereignisse außer der Reihe) im Shopware-Log. Betriebsfehler werden immer protokolliert.</helpText>
+            <helpText lang="ru-RU">Записывать рутинную диагностику вебхуков (дубли, события вне очереди) в журнал Shopware. Операционные ошибки логируются всегда.</helpText>
+            <defaultValue>false</defaultValue>
+        </input-field>
+    </card>
+</config>
