@@ -176,25 +176,15 @@ function sw_settings(array $overrides = array())
 }
 
 /**
- * Point Config at a temp generated-config file built from sw_generated_config(),
- * so the processors (which call Config::fromSettings, reading the on-disk file)
- * resolve credentials without touching the real plugin config. Returns the path.
+ * Inject credentials into the test-only Config seam.
  */
 function sw_write_generated_config(array $overrides = array())
 {
-    $path = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'paymos-sw-config-' . getmypid() . '.php';
-    file_put_contents($path, "<?php\n\nreturn " . var_export(sw_generated_config($overrides), true) . ";\n");
-    PaymosPayments\Service\Config::useConfigPathForTests($path);
-
-    return $path;
+    PaymosPayments\Service\Config::useConfigForTests(sw_generated_config($overrides));
 }
 
 function sw_reset_test_state()
 {
-    $path = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'paymos-sw-config-' . getmypid() . '.php';
-    if (is_file($path)) {
-        unlink($path);
-    }
     if (class_exists('PaymosPayments\\Service\\Config')) {
         PaymosPayments\Service\Config::resetForTests();
     }
@@ -238,6 +228,7 @@ function sw_invoice_event($eventId, $eventType, $status, array $overrides = arra
     return array_replace_recursive(array(
         'event_id' => $eventId,
         'event_type' => $eventType,
+        'version' => 1,
         'occurred_at' => 1709000000,
         'data' => array(
             'invoice_id' => 'inv_123',

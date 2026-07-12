@@ -51,17 +51,20 @@ final class PaymosPaymentHandler implements AsynchronousPaymentHandlerInterface
 
     /** @var LoggerInterface */
     private $logger;
+    private $credentialStore;
 
     public function __construct(
         CheckoutProcessor $checkoutProcessor,
         ShopwareGatewayInterface $gateway,
         SystemConfigService $systemConfig,
-        LoggerInterface $logger
+        LoggerInterface $logger,
+        CredentialStore $credentialStore
     ) {
         $this->checkoutProcessor = $checkoutProcessor;
         $this->gateway = $gateway;
         $this->systemConfig = $systemConfig;
         $this->logger = $logger;
+        $this->credentialStore = $credentialStore;
     }
 
     public function pay(
@@ -183,16 +186,15 @@ final class PaymosPaymentHandler implements AsynchronousPaymentHandlerInterface
     }
 
     /**
-     * Admin slice of the config (mode + debug toggle). Secrets come from the
-     * generated paymos-config.php, never from here.
+     * Admin slice of the config. CredentialStore adds locally encrypted secrets.
      *
      * @return array<string, mixed>
      */
     private function settings(?string $salesChannelId): array
     {
-        return array(
+        return $this->credentialStore->settings(array(
             'mode' => (string) $this->systemConfig->getString(self::CONFIG_DOMAIN . 'mode', $salesChannelId),
             'debug_logging' => $this->systemConfig->getBool(self::CONFIG_DOMAIN . 'debugLogging', $salesChannelId) ? '1' : '0',
-        );
+        ));
     }
 }

@@ -199,6 +199,7 @@ function test_sw_webhook_ignores_non_invoice_event()
     $event = array(
         'event_id' => 'evt_wd',
         'event_type' => 'withdrawal.completed',
+        'version' => 1,
         'occurred_at' => 1709000000,
         'data' => array('status' => 'completed'),
     );
@@ -214,7 +215,7 @@ function test_sw_webhook_missing_config_returns_500()
     // No webhook secrets configured -> the verifier construction throws
     // InvalidArgumentException -> 500 (configuration error).
     sw_reset_test_state();
-    PaymosPayments\Service\Config::useConfigPathForTests(sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'paymos-sw-missing.php');
+    PaymosPayments\Service\Config::useConfigForTests(array());
 
     $processor = new WebhookProcessor(
         new FakeShopwareGateway(),

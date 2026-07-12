@@ -8,6 +8,7 @@ use PaymosPayments\Service\Config;
 use PaymosPayments\Service\PaymosInvoiceStore;
 use PaymosPayments\Service\Reconciler;
 use PaymosPayments\Service\ShopwareGateway;
+use PaymosPayments\Service\CredentialStore;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -36,17 +37,19 @@ final class ReconcileCommand extends Command
 
     /** @var PaymosInvoiceStore */
     private $invoiceStore;
+    private $credentialStore;
 
-    public function __construct(ShopwareGateway $gateway, PaymosInvoiceStore $invoiceStore)
+    public function __construct(ShopwareGateway $gateway, PaymosInvoiceStore $invoiceStore, CredentialStore $credentialStore)
     {
         parent::__construct();
         $this->gateway = $gateway;
         $this->invoiceStore = $invoiceStore;
+        $this->credentialStore = $credentialStore;
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $settings = array(); // mode/secrets come from the generated config file
+        $settings = $this->credentialStore->settings(array());
         if (!Config::fromSettings($settings)->isConfigured()) {
             $output->writeln('<comment>Paymos is not configured yet; nothing to reconcile.</comment>');
 
