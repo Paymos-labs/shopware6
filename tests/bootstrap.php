@@ -165,7 +165,7 @@ function assertContainsValue($needle, $haystack, $message)
 
 /**
  * The admin settings slice the processors receive (mode + debug). Secrets live
- * in the generated config the tests write via Config::fromArray.
+ * in the connected credential set the tests write via Config::fromArray.
  */
 function sw_settings(array $overrides = array())
 {
