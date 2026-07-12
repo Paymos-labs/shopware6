@@ -6,27 +6,11 @@ namespace PaymosPayments\Service;
 
 use Paymos\ClientConfig;
 
-/**
- * Two-tier configuration, secrets read-only.
- *
- *  - The dashboard injects a generated `paymos-config.php` into the plugin ZIP
- *    (v2 shape: `config_version` + `environments.{sandbox,live}.{api_key,
- *    api_secret,project_id,webhook_secret,base_url}`). It is the source of
- *    truth for credentials and overrides anything entered in the admin.
- *  - The Shopware admin (SystemConfigService) only carries the `mode`
- *    (sandbox/live) toggle, the debug flag, and presentation. The merchant
- *    never types a secret.
- *
- * `$settings` is the admin slice (a plain array lifted from SystemConfigService
- * so the core stays Shopware-free). `$generated` is the loaded config file.
- */
+/** Runtime configuration assembled from Shopware's encrypted credential store. */
 final class Config
 {
-    /** @var array<string, mixed>|null */
-    private static $generatedConfig;
-
-    /** @var string|null */
-    private static $generatedConfigPath;
+    /** @var array<string, mixed> */
+    private static $testConfig = array();
 
     /** @var array<string, mixed> */
     private $settings;
@@ -49,7 +33,10 @@ final class Config
      */
     public static function fromSettings(array $settings)
     {
-        return new self($settings, self::generatedConfig());
+        $generated = isset($settings['environments']) && is_array($settings['environments'])
+            ? array('environments' => $settings['environments'])
+            : self::$testConfig;
+        return new self($settings, $generated);
     }
 
     /**
@@ -66,19 +53,13 @@ final class Config
 
     public static function resetForTests()
     {
-        self::$generatedConfig = null;
-        self::$generatedConfigPath = null;
+        self::$testConfig = array();
     }
 
-    /**
-     * Override the on-disk config path (tests only).
-     *
-     * @param string $path
-     */
-    public static function useConfigPathForTests($path)
+    /** @param array<string, mixed> $config */
+    public static function useConfigForTests(array $config)
     {
-        self::$generatedConfig = null;
-        self::$generatedConfigPath = (string) $path;
+        self::$testConfig = $config;
     }
 
     public function environment()
@@ -203,32 +184,4 @@ final class Config
         return isset($source[$key]) && is_scalar($source[$key]) ? trim((string) $source[$key]) : '';
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    private static function generatedConfig()
-    {
-        if (self::$generatedConfig !== null) {
-            return self::$generatedConfig;
-        }
-
-        $path = self::$generatedConfigPath !== null
-            ? self::$generatedConfigPath
-            : dirname(__DIR__, 2) . '/paymos-config.php';
-
-        if (is_file($path)) {
-            $config = require $path;
-            if (is_array($config)) {
-                self::$generatedConfig = $config;
-                return self::$generatedConfig;
-            }
-        }
-
-        self::$generatedConfig = array(
-            'mode' => 'sandbox',
-            'environments' => array(),
-        );
-
-        return self::$generatedConfig;
-    }
 }

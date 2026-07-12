@@ -6,4 +6,5 @@
     <!-- Attribute routing works on both Symfony 6.4 (Shopware 6.5) and
          Symfony 7 (Shopware 6.6). The 6.4-only "annotation" type is avoided. -->
     <import resource="../../Storefront/Controller/" type="attribute"/>
+    <import resource="../../Api/Controller/" type="attribute"/>
 </routes>

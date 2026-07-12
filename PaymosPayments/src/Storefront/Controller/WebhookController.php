@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PaymosPayments\Storefront\Controller;
 
 use PaymosPayments\Service\WebhookProcessor;
+use PaymosPayments\Service\CredentialStore;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Shopware\Storefront\Controller\StorefrontController;
 use Symfony\Component\HttpFoundation\Request;
@@ -34,11 +35,13 @@ final class WebhookController extends StorefrontController
 
     /** @var SystemConfigService */
     private $systemConfig;
+    private $credentialStore;
 
-    public function __construct(WebhookProcessor $webhookProcessor, SystemConfigService $systemConfig)
+    public function __construct(WebhookProcessor $webhookProcessor, SystemConfigService $systemConfig, CredentialStore $credentialStore)
     {
         $this->webhookProcessor = $webhookProcessor;
         $this->systemConfig = $systemConfig;
+        $this->credentialStore = $credentialStore;
     }
 
     #[Route(
@@ -66,9 +69,9 @@ final class WebhookController extends StorefrontController
      */
     private function settings(): array
     {
-        return array(
+        return $this->credentialStore->settings(array(
             'mode' => (string) $this->systemConfig->getString(self::CONFIG_DOMAIN . 'mode'),
             'debug_logging' => $this->systemConfig->getBool(self::CONFIG_DOMAIN . 'debugLogging') ? '1' : '0',
-        );
+        ));
     }
 }

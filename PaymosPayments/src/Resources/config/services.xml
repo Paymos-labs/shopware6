@@ -4,6 +4,10 @@
            xsi:schemaLocation="http://symfony.com/schema/dic/services http://symfony.com/schema/dic/services/services-1.0.xsd">
 
     <services>
+        <service id="PaymosPayments\Service\CredentialStore">
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <argument>%kernel.secret%</argument>
+        </service>
         <!-- Production Shopware gateway: drives the order-transaction state machine. -->
         <service id="PaymosPayments\Service\ShopwareGateway">
             <argument type="service" id="Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStateHandler"/>
@@ -39,6 +43,7 @@
             <argument type="service" id="PaymosPayments\Service\ShopwareGateway"/>
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
             <argument type="service" id="logger"/>
+            <argument type="service" id="PaymosPayments\Service\CredentialStore"/>
             <tag name="shopware.payment.method.async"/>
         </service>
 
@@ -46,6 +51,7 @@
         <service id="PaymosPayments\Storefront\Controller\WebhookController" public="true">
             <argument type="service" id="PaymosPayments\Service\WebhookProcessor"/>
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <argument type="service" id="PaymosPayments\Service\CredentialStore"/>
             <call method="setContainer">
                 <argument type="service" id="service_container"/>
             </call>
@@ -65,7 +71,15 @@
         <service id="PaymosPayments\Command\ReconcileCommand">
             <argument type="service" id="PaymosPayments\Service\ShopwareGateway"/>
             <argument type="service" id="PaymosPayments\Service\PaymosInvoiceStore"/>
+            <argument type="service" id="PaymosPayments\Service\CredentialStore"/>
             <tag name="console.command"/>
+        </service>
+
+        <service id="PaymosPayments\Api\Controller\ConnectController" public="true">
+            <argument type="service" id="PaymosPayments\Service\CredentialStore"/>
+            <call method="setContainer">
+                <argument type="service" id="service_container"/>
+            </call>
         </service>
     </services>
 </container>
