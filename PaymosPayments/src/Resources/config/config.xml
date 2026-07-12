@@ -12,9 +12,9 @@
             <label>Mode</label>
             <label lang="de-DE">Modus</label>
             <label lang="ru-RU">Режим</label>
-            <helpText>Sandbox uses your test credentials; Live uses production. Both sets of credentials ship inside the plugin ZIP generated from the Paymos dashboard.</helpText>
-            <helpText lang="de-DE">Sandbox nutzt Ihre Testzugangsdaten, Live die Produktivdaten. Beide Schlüsselsätze sind im aus dem Paymos-Dashboard generierten Plugin-ZIP enthalten.</helpText>
-            <helpText lang="ru-RU">Sandbox использует тестовые ключи, Live — боевые. Оба набора ключей входят в ZIP плагина, сгенерированный в панели Paymos.</helpText>
+            <helpText>Connect Paymos once, test in Sandbox, then switch to Live. Credentials are delivered securely after approval and are never included in the plugin ZIP.</helpText>
+            <helpText lang="de-DE">Verbinden Sie Paymos einmal, testen Sie in der Sandbox und wechseln Sie dann zu Live. Zugangsdaten werden nach der Freigabe sicher übermittelt und sind niemals im Plugin-ZIP enthalten.</helpText>
+            <helpText lang="ru-RU">Подключите Paymos один раз, проверьте оплату в Sandbox и затем переключитесь на Live. Ключи передаются безопасно после подтверждения и никогда не входят в ZIP плагина.</helpText>
             <defaultValue>sandbox</defaultValue>
             <options>
                 <option>

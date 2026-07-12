@@ -106,7 +106,7 @@ final class Config
         }
 
         if (count($secrets) === 0) {
-            throw new \InvalidArgumentException('Paymos generated config must contain at least one webhook secret.');
+            throw new \InvalidArgumentException('Paymos connected credentials must contain at least one webhook secret.');
         }
 
         return $secrets;
@@ -119,7 +119,7 @@ final class Config
     }
 
     /**
-     * Whether a usable generated config is present (at least one environment
+     * Whether a usable connected credential set is present (at least one environment
      * carries both an API key and a webhook secret). The payment handler uses
      * this to fail checkout cleanly instead of throwing deep in the SDK.
      */
@@ -156,7 +156,7 @@ final class Config
 
         $value = $this->scalar($config, $key);
         if ($required && $value === '') {
-            throw new \InvalidArgumentException('Paymos generated config is missing ' . $key . ' for ' . $environment . '.');
+            throw new \InvalidArgumentException('Paymos connected credentials are missing ' . $key . ' for ' . $environment . '.');
         }
 
         return $value;
