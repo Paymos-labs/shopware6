@@ -1,7 +1,7 @@
 {
   "name": "paymos/shopware6-payments",
   "description": "Paymos hosted-checkout crypto payment plugin for Shopware 6 (6.5 and 6.6). Accept USDT and USDC at checkout.",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "type": "shopware-platform-plugin",
   "license": "MIT",
   "authors": [
