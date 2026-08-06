@@ -5,29 +5,44 @@
     <card>
         <title>Paymos</title>
         <title lang="de-DE">Paymos</title>
+        <title lang="es-ES">Paymos</title>
         <title lang="ru-RU">Paymos</title>
+        <title lang="tr-TR">Paymos</title>
+        <title lang="zh-CN">Paymos</title>
 
         <input-field type="single-select">
             <name>mode</name>
             <label>Mode</label>
             <label lang="de-DE">Modus</label>
+            <label lang="es-ES">Modo</label>
             <label lang="ru-RU">Режим</label>
+            <label lang="tr-TR">Mod</label>
+            <label lang="zh-CN">模式</label>
             <helpText>Connect Paymos once, test in Sandbox, then switch to Live. Credentials are delivered securely after approval and are never included in the plugin ZIP.</helpText>
             <helpText lang="de-DE">Verbinden Sie Paymos einmal, testen Sie in der Sandbox und wechseln Sie dann zu Live. Zugangsdaten werden nach der Freigabe sicher übermittelt und sind niemals im Plugin-ZIP enthalten.</helpText>
+            <helpText lang="es-ES">Conecta Paymos una vez, prueba en Sandbox y cambia a Live. Las credenciales se transmiten de forma segura tras la aprobación y nunca viajan dentro del ZIP del plugin.</helpText>
             <helpText lang="ru-RU">Подключите Paymos один раз, проверьте оплату в Sandbox и затем переключитесь на Live. Ключи передаются безопасно после подтверждения и никогда не входят в ZIP плагина.</helpText>
+            <helpText lang="tr-TR">Paymos'u bir kez bağlayın, Sandbox'ta test edin, ardından Live'a geçin. Kimlik bilgileri onaydan sonra güvenli şekilde iletilir ve hiçbir zaman eklenti ZIP'ine dahil edilmez.</helpText>
+            <helpText lang="zh-CN">只需连接一次 Paymos，先在 Sandbox 中测试，然后切换到 Live。凭据在审核通过后安全下发，绝不会包含在插件 ZIP 中。</helpText>
             <defaultValue>sandbox</defaultValue>
             <options>
                 <option>
                     <id>sandbox</id>
                     <name>Sandbox (test)</name>
                     <name lang="de-DE">Sandbox (Test)</name>
+                    <name lang="es-ES">Sandbox (prueba)</name>
                     <name lang="ru-RU">Sandbox (тест)</name>
+                    <name lang="tr-TR">Sandbox (test)</name>
+                    <name lang="zh-CN">Sandbox（测试）</name>
                 </option>
                 <option>
                     <id>live</id>
                     <name>Live (production)</name>
                     <name lang="de-DE">Live (Produktion)</name>
+                    <name lang="es-ES">Live (producción)</name>
                     <name lang="ru-RU">Live (боевой)</name>
+                    <name lang="tr-TR">Live (canlı)</name>
+                    <name lang="zh-CN">Live（生产）</name>
                 </option>
             </options>
         </input-field>
@@ -36,10 +51,16 @@
             <name>debugLogging</name>
             <label>Debug logging</label>
             <label lang="de-DE">Debug-Protokollierung</label>
+            <label lang="es-ES">Registro de diagnóstico</label>
             <label lang="ru-RU">Журнал отладки</label>
+            <label lang="tr-TR">Hata ayıklama günlüğü</label>
+            <label lang="zh-CN">调试日志</label>
             <helpText>Log routine webhook diagnostics (duplicates, out-of-order events) to the Shopware log. Operational errors are always logged.</helpText>
             <helpText lang="de-DE">Protokolliert routinemäßige Webhook-Diagnosen (Duplikate, Ereignisse außer der Reihe) im Shopware-Log. Betriebsfehler werden immer protokolliert.</helpText>
+            <helpText lang="es-ES">Registra los diagnósticos habituales del webhook (duplicados, eventos fuera de orden) en el log de Shopware. Los errores de operación se registran siempre.</helpText>
             <helpText lang="ru-RU">Записывать рутинную диагностику вебхуков (дубли, события вне очереди) в журнал Shopware. Операционные ошибки логируются всегда.</helpText>
+            <helpText lang="tr-TR">Rutin webhook tanılamalarını (yinelenen ve sıra dışı olaylar) Shopware günlüğüne yazar. Operasyonel hatalar her zaman günlüğe kaydedilir.</helpText>
+            <helpText lang="zh-CN">将常规 Webhook 诊断信息（重复事件、乱序事件）记录到 Shopware 日志。运行错误始终会被记录。</helpText>
             <defaultValue>false</defaultValue>
         </input-field>
     </card>
