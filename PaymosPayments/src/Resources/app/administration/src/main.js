@@ -66,6 +66,10 @@ Component.register('paymos-connect-page', {
                     const result = await this.request('/_action/paymos/connect/poll');
                     if (result.status === 'connected') {
                         this.message = 'Paymos connected.';
+                        // Drop the recovery link: leaving it up tells a merchant who
+                        // just connected that their browser blocked the approval tab.
+                        this.manualUrl = '';
+                        this.manualCode = '';
                         this.busy = false;
                         return;
                     }

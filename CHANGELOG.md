@@ -6,6 +6,11 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The public release history also lives at [paymos.io/changelog](https://paymos.io/changelog).
 
+## [1.4.1] - 2026-08-07
+
+- fix(shopware): ship the admin bundle in the layout 6.7 actually reads
+- chore: rebuild canonical CMS package
+
 ## [1.4.0] - 2026-08-07
 
 - feat(shopware): register the handler that matches the running core
