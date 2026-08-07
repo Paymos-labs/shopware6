@@ -69,11 +69,25 @@ interface ShopwareGatewayInterface
      * Shopware's finalize flow. "Newest wins" — older pending transactions are
      * driven to terminal state by their own webhooks.
      *
-     * @param string $customerId             The Shopware customer id, or "" for a guest with no row.
-     * @param string $paymentHandlerIdentifier The Paymos payment handler FQCN.
+     * @param string $customerId    The Shopware customer id, or "" for a guest with no row.
+     * @param string $technicalName The Paymos payment method's technical name. Deliberately
+     *                              not the handler FQCN — that name differs per Shopware
+     *                              major, so a store upgraded across one would stop matching
+     *                              its own pending transactions.
      * @return string The order-transaction id, or "" when none.
      */
-    public function findLatestPendingTransactionIdForCustomer($customerId, $paymentHandlerIdentifier);
+    /**
+     * Order number, total, currency, customer and sales channel for a transaction.
+     *
+     * Shopware 6.7 passes the payment handler only an order-transaction id, so the
+     * plugin loads what older versions received as ready-made structs.
+     *
+     * @param string $transactionId
+     * @return array<string, string>|null null when the transaction is unknown
+     */
+    public function orderContext($transactionId);
+
+    public function findLatestPendingTransactionIdForCustomer($customerId, $technicalName);
 
     /**
      * Append a human-readable note to the plugin log. The plugin gates routine

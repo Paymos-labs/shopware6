@@ -1,0 +1,25 @@
+<?xml version="1.0" ?>
+<container xmlns="http://symfony.com/schema/dic/services"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:schemaLocation="http://symfony.com/schema/dic/services http://symfony.com/schema/dic/services/services-1.0.xsd">
+
+    <!--
+        Payment handler for Shopware 6.5 and 6.6 (AsynchronousPaymentHandlerInterface).
+
+        NOT auto-loaded: Shopware's Bundle::registerContainerFile() only globs
+        Resources/config/services.* , so this file is loaded explicitly by
+        PaymosPayments::build() and only on a core without AbstractPaymentHandler.
+        That matters — loading both handler files would make the container
+        instantiate a class whose parent does not exist on this Shopware version.
+    -->
+    <services>
+        <service id="PaymosPayments\Service\PaymosPaymentHandler">
+            <argument type="service" id="PaymosPayments\Service\CheckoutProcessor"/>
+            <argument type="service" id="PaymosPayments\Service\ShopwareGateway"/>
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <argument type="service" id="logger"/>
+            <argument type="service" id="PaymosPayments\Service\CredentialStore"/>
+            <tag name="shopware.payment.method.async"/>
+        </service>
+    </services>
+</container>
