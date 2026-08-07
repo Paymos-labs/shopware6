@@ -7,7 +7,7 @@ namespace PaymosPayments;
 use Paymos\Client;
 use PaymosPayments\Service\PaymosPaymentHandler;
 use PaymosPayments\Service\PaymosPaymentHandler67;
-use Shopware\Core\Checkout\Payment\Cart\PaymentHandler\AbstractPaymentHandler;
+use Shopware\Core\Checkout\Payment\Cart\PaymentHandler\AsynchronousPaymentHandlerInterface;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
@@ -59,16 +59,18 @@ class PaymosPayments extends Plugin
     /**
      * Register the payment handler that fits the running Shopware version.
      *
-     * Capability, not version arithmetic: AbstractPaymentHandler exists from 6.7
-     * onwards and never before, so asking whether the class is there answers the
-     * question directly and keeps working on versions released after this code.
+     * Capability, not version arithmetic — but the capability to ask about is the
+     * OLD interface, not the new class. Late 6.6 patches (verified on 6.6.9.0) ship
+     * BOTH payment APIs, so keying on AbstractPaymentHandler would make the plugin
+     * behave differently between two 6.6 stores. The async interface disappearing is
+     * what actually marks 6.7, and it gives the whole 6.6 line one behaviour.
      */
     public function build(ContainerBuilder $container): void
     {
         parent::build($container);
 
         $loader = new XmlFileLoader($container, new FileLocator(__DIR__ . '/Resources/config'));
-        $loader->load(self::supportsAbstractPaymentHandler() ? 'handler_67.xml' : 'handler_legacy.xml');
+        $loader->load(self::legacyPaymentApiIsGone() ? 'handler_67.xml' : 'handler_legacy.xml');
     }
 
     /**
@@ -78,14 +80,14 @@ class PaymosPayments extends Plugin
      */
     public static function paymentHandlerClass(): string
     {
-        return self::supportsAbstractPaymentHandler()
+        return self::legacyPaymentApiIsGone()
             ? PaymosPaymentHandler67::class
             : PaymosPaymentHandler::class;
     }
 
-    private static function supportsAbstractPaymentHandler(): bool
+    private static function legacyPaymentApiIsGone(): bool
     {
-        return class_exists(AbstractPaymentHandler::class);
+        return !interface_exists(AsynchronousPaymentHandlerInterface::class);
     }
 
     public function install(InstallContext $installContext): void
