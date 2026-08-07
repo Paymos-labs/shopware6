@@ -6,6 +6,10 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The public release history also lives at [paymos.io/changelog](https://paymos.io/changelog).
 
+## [1.4.5] - 2026-08-07
+
+- chore: rebuild canonical CMS package
+
 ## [1.4.4] - 2026-08-07
 
 - chore: rebuild canonical CMS package
