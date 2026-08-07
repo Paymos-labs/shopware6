@@ -6,6 +6,8 @@ namespace PaymosPayments;
 
 use Paymos\Client;
 use PaymosPayments\Service\PaymosPaymentHandler;
+use PaymosPayments\Service\PaymosPaymentHandler67;
+use Shopware\Core\Checkout\Payment\Cart\PaymentHandler\AbstractPaymentHandler;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
@@ -16,6 +18,9 @@ use Shopware\Core\Framework\Plugin\Context\DeactivateContext;
 use Shopware\Core\Framework\Plugin\Context\InstallContext;
 use Shopware\Core\Framework\Plugin\Context\UninstallContext;
 use Shopware\Core\Framework\Plugin\Util\PluginIdProvider;
+use Symfony\Component\Config\FileLocator;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Loader\XmlFileLoader;
 
 // Load the bundled Paymos PHP SDK. The dashboard ships the SDK inside the
 // plugin's own vendor/ directory (Shopware does not run composer install for a
@@ -30,20 +35,58 @@ if (!class_exists(Client::class, false)) {
 }
 
 /**
- * Paymos hosted-checkout payment plugin for Shopware 6 (6.5 and 6.6).
+ * Paymos hosted-checkout payment plugin for Shopware 6 (6.5, 6.6 and 6.7).
  *
- * Installs a single "Pay with crypto (Paymos)" payment method bound to
- * {@see PaymosPaymentHandler}. Compatible with the legacy async payment handler
- * model used across all of 6.5 and 6.6 (6.7 moved to AbstractPaymentHandler and
- * is out of scope for this artifact).
+ * Installs a single "Pay with crypto (Paymos)" payment method. Which handler it
+ * binds to depends on the running core: 6.5/6.6 use the async handler interface,
+ * 6.7 replaced it with AbstractPaymentHandler. The two APIs never coexist, so one
+ * class cannot serve both — but one package can, because PHP loads a class only
+ * when something references it and the container is only ever told about one of
+ * them (see {@see build()}).
  */
 class PaymosPayments extends Plugin
 {
     /**
      * Stable technical name for the payment method (plugin-prefixed to avoid
      * collisions, per Shopware guidance).
+     *
+     * This — not the handler class — is how the plugin finds its own payment
+     * method. The handler class name is version-dependent and changes under a
+     * store when Shopware itself is upgraded; the technical name never does.
      */
-    private const PAYMENT_METHOD_TECHNICAL_NAME = 'paymos_crypto';
+    public const PAYMENT_METHOD_TECHNICAL_NAME = 'paymos_crypto';
+
+    /**
+     * Register the payment handler that fits the running Shopware version.
+     *
+     * Capability, not version arithmetic: AbstractPaymentHandler exists from 6.7
+     * onwards and never before, so asking whether the class is there answers the
+     * question directly and keeps working on versions released after this code.
+     */
+    public function build(ContainerBuilder $container): void
+    {
+        parent::build($container);
+
+        $loader = new XmlFileLoader($container, new FileLocator(__DIR__ . '/Resources/config'));
+        $loader->load(self::supportsAbstractPaymentHandler() ? 'handler_67.xml' : 'handler_legacy.xml');
+    }
+
+    /**
+     * The payment handler FQCN for the running Shopware version — the value
+     * Shopware stores as the payment method's handlerIdentifier and resolves
+     * against the registered handler services.
+     */
+    public static function paymentHandlerClass(): string
+    {
+        return self::supportsAbstractPaymentHandler()
+            ? PaymosPaymentHandler67::class
+            : PaymosPaymentHandler::class;
+    }
+
+    private static function supportsAbstractPaymentHandler(): bool
+    {
+        return class_exists(AbstractPaymentHandler::class);
+    }
 
     public function install(InstallContext $installContext): void
     {
@@ -52,6 +95,12 @@ class PaymosPayments extends Plugin
 
     public function activate(ActivateContext $activateContext): void
     {
+        // Re-run the upsert: on a store that was upgraded across a Shopware major
+        // while the plugin sat installed, the stored handlerIdentifier still names
+        // the class of the previous era and the payment method would resolve to
+        // nothing. Activation is the one lifecycle hook a merchant reliably
+        // triggers after such an upgrade.
+        $this->upsertPaymentMethod($activateContext->getContext());
         $this->setPaymentMethodIsActive(true, $activateContext->getContext());
         parent::activate($activateContext);
     }
@@ -85,6 +134,17 @@ class PaymosPayments extends Plugin
     {
         $paymentMethodId = $this->getPaymentMethodId($context);
         if ($paymentMethodId !== null) {
+            // Already there — only make sure it points at the handler this
+            // Shopware version can actually resolve. Everything else is the
+            // merchant's to edit.
+            $this->paymentMethodRepository()->update(
+                [[
+                    'id' => $paymentMethodId,
+                    'handlerIdentifier' => self::paymentHandlerClass(),
+                ]],
+                $context
+            );
+
             return;
         }
 
@@ -94,7 +154,7 @@ class PaymosPayments extends Plugin
 
         $data = [
             // The handler is selected by this identifier (the handler FQCN).
-            'handlerIdentifier' => PaymosPaymentHandler::class,
+            'handlerIdentifier' => self::paymentHandlerClass(),
             'technicalName' => self::PAYMENT_METHOD_TECHNICAL_NAME,
             'name' => 'Pay with crypto (Paymos)',
             'description' => 'Pay with USDT or USDC. You will be redirected to the secure Paymos checkout.',
@@ -136,8 +196,11 @@ class PaymosPayments extends Plugin
 
     private function getPaymentMethodId(Context $context): ?string
     {
+        // Keyed on the technical name, never the handler class: the class is
+        // version-dependent, so looking the method up by it would lose track of
+        // the plugin's own payment method the moment the store changes majors.
         $criteria = (new Criteria())
-            ->addFilter(new EqualsFilter('handlerIdentifier', PaymosPaymentHandler::class))
+            ->addFilter(new EqualsFilter('technicalName', self::PAYMENT_METHOD_TECHNICAL_NAME))
             ->setLimit(1);
 
         return $this->paymentMethodRepository()->searchIds($criteria, $context)->firstId();

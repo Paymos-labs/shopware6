@@ -26,7 +26,10 @@ final class ConnectController extends AbstractController
     {
         try {
             $sourceUrl = $this->sourceUrl($request);
-            $state = (new DeviceConnectClient('https://app.paymos.io'))->start('shopware6', $sourceUrl);
+            // The admin page posts its own URL so approval can return the merchant to it.
+            // Paymos drops it unless it shares an origin with the shop URL above.
+            $returnUrl = (string) $request->request->get('paymos_return_url', '');
+            $state = (new DeviceConnectClient('https://app.paymos.io'))->start('shopware6', $sourceUrl, $returnUrl);
             $this->credentialStore->saveState($state);
             return new JsonResponse([
                 'verification_url' => $state['verification_url'],

@@ -362,7 +362,17 @@ final class FakeShopwareGateway implements PaymosPayments\Service\ShopwareGatewa
     /** @var string Latest-pending transaction id the bridge resolution should return. */
     public $latestPendingTransactionId = '';
 
-    public function findLatestPendingTransactionIdForCustomer($customerId, $paymentHandlerIdentifier)
+    /** @var array<string, array<string, string>> Order context keyed by transaction id. */
+    public $orderContexts = array();
+
+    public function orderContext($transactionId)
+    {
+        $id = (string) $transactionId;
+
+        return isset($this->orderContexts[$id]) ? $this->orderContexts[$id] : null;
+    }
+
+    public function findLatestPendingTransactionIdForCustomer($customerId, $technicalName)
     {
         return (string) $this->latestPendingTransactionId;
     }

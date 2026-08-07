@@ -37,15 +37,12 @@
             <argument type="service" id="PaymosPayments\Service\EventStore"/>
         </service>
 
-        <!-- Payment handler (async, 6.5/6.6 tag). -->
-        <service id="PaymosPayments\Service\PaymosPaymentHandler">
-            <argument type="service" id="PaymosPayments\Service\CheckoutProcessor"/>
-            <argument type="service" id="PaymosPayments\Service\ShopwareGateway"/>
-            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
-            <argument type="service" id="logger"/>
-            <argument type="service" id="PaymosPayments\Service\CredentialStore"/>
-            <tag name="shopware.payment.method.async"/>
-        </service>
+        <!--
+            The payment handler is NOT registered here. Its API changed between
+            Shopware majors, so it lives in handler_legacy.xml (6.5/6.6) and
+            handler_67.xml (6.7+); PaymosPayments::build() loads whichever one
+            matches the running core.
+        -->
 
         <!-- Webhook controller (public + setContainer, per Shopware controller docs). -->
         <service id="PaymosPayments\Storefront\Controller\WebhookController" public="true">

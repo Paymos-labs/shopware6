@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace PaymosPayments\Storefront\Controller;
 
+use PaymosPayments\PaymosPayments;
 use PaymosPayments\Service\InvoiceStoreInterface;
-use PaymosPayments\Service\PaymosPaymentHandler;
 use PaymosPayments\Service\ReturnBridgeResolver;
 use PaymosPayments\Service\ShopwareGatewayInterface;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
@@ -97,7 +97,7 @@ final class PaymosReturnController extends StorefrontController
 
             $transactionId = $this->gateway->findLatestPendingTransactionIdForCustomer(
                 $customer->getId(),
-                PaymosPaymentHandler::class
+                PaymosPayments::PAYMENT_METHOD_TECHNICAL_NAME
             );
             if ($transactionId === '') {
                 return '';
