@@ -6,6 +6,10 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The public release history also lives at [paymos.io/changelog](https://paymos.io/changelog).
 
+## [1.4.3] - 2026-08-07
+
+- fix(shopware): key the handler choice on the interface that disappears
+
 ## [1.4.2] - 2026-08-07
 
 - docs(plugins): record the Shopware 6.6 run and widen the advertised range

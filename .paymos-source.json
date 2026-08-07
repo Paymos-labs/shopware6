@@ -1,6 +1,6 @@
 {
   "source_repository": "shockk73/paymos",
   "source_path": "plugins/shopware6-paymos",
-  "source_commit": "3f69f4b281bb7e952ec72c855fb755b5e5951781",
-  "version": "1.4.2"
+  "source_commit": "45d77b1987cbf3592eb6c758d35a0f2ef0cfced6",
+  "version": "1.4.3"
 }
