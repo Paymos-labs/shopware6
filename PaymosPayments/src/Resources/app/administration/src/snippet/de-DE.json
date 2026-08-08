@@ -1,0 +1,19 @@
+{
+  "paymos": {
+    "module": {
+      "title": "Paymos",
+      "description": "Paymos verbinden"
+    },
+    "connect": {
+      "cardTitle": "Paymos verbinden",
+      "intro": "Verbinden Sie diese Shopware-Installation mit dem Projekt, das in Paymos gerade ausgewählt ist.",
+      "button": "Paymos verbinden",
+      "starting": "Sichere Verbindung wird aufgebaut…",
+      "waiting": "Warten auf Bestätigung. Code: {code}",
+      "connected": "Paymos verbunden.",
+      "blocked": "Ihr Browser hat den Bestätigungs-Tab blockiert.",
+      "blockedLink": "Bestätigungsseite öffnen",
+      "blockedCode": "Code: {code}"
+    }
+  }
+}

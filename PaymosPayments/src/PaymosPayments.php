@@ -164,23 +164,79 @@ class PaymosPayments extends Plugin
             // Keep the method usable after the order is created (e.g. payment
             // failed and the buyer wants to retry).
             'afterOrderEnabled' => true,
-            'translations' => [
-                'en-GB' => [
-                    'name' => 'Pay with crypto (Paymos)',
-                    'description' => 'Pay with USDT or USDC. You will be redirected to the secure Paymos checkout.',
-                ],
-                'de-DE' => [
-                    'name' => 'Mit Krypto bezahlen (Paymos)',
-                    'description' => 'Bezahlen Sie mit USDT oder USDC. Sie werden zur sicheren Paymos-Kasse weitergeleitet.',
-                ],
-                'ru-RU' => [
-                    'name' => 'Оплата криптовалютой (Paymos)',
-                    'description' => 'Оплата в USDT или USDC. Вы перейдёте на защищённую страницу оплаты Paymos.',
-                ],
-            ],
+            'translations' => $this->installedTranslations($context),
         ];
 
         $this->paymentMethodRepository()->create([$data], $context);
+    }
+
+    /**
+     * The checkout label and blurb per locale. English is also the untranslated
+     * fallback above, so a shop running a language we have no copy for still
+     * reads as a finished product rather than a technical name.
+     *
+     * @return array<string, array{name: string, description: string}>
+     */
+    private static function paymentMethodCopy(): array
+    {
+        return [
+            'en-GB' => [
+                'name' => 'Pay with crypto (Paymos)',
+                'description' => 'Pay with USDT or USDC. You will be redirected to the secure Paymos checkout.',
+            ],
+            'de-DE' => [
+                'name' => 'Mit Krypto bezahlen (Paymos)',
+                'description' => 'Bezahlen Sie mit USDT oder USDC. Sie werden zur sicheren Paymos-Kasse weitergeleitet.',
+            ],
+            'ru-RU' => [
+                'name' => 'Оплата криптовалютой (Paymos)',
+                'description' => 'Оплата в USDT или USDC. Вы перейдёте на защищённую страницу оплаты Paymos.',
+            ],
+            'es-ES' => [
+                'name' => 'Pagar con cripto (Paymos)',
+                'description' => 'Paga con USDT o USDC. Te llevaremos a la pasarela segura de Paymos.',
+            ],
+            'tr-TR' => [
+                'name' => 'Kripto ile öde (Paymos)',
+                'description' => 'USDT veya USDC ile ödeyin. Güvenli Paymos ödeme sayfasına yönlendirileceksiniz.',
+            ],
+            'zh-CN' => [
+                'name' => '加密货币支付 (Paymos)',
+                'description' => '使用 USDT 或 USDC 付款。我们会将您转到 Paymos 安全收银台。',
+            ],
+        ];
+    }
+
+    /**
+     * Only the locales this shop actually has a language for. Writing a
+     * translation for an absent locale is not something the merchant can fix,
+     * so the copy is filtered against the language table rather than sent
+     * hopefully — a failed install is a far worse outcome than an English label.
+     *
+     * @return array<string, array{name: string, description: string}>
+     */
+    private function installedTranslations(Context $context): array
+    {
+        $copy = self::paymentMethodCopy();
+
+        $criteria = new Criteria();
+        $criteria->addAssociation('translationCode');
+
+        /** @var EntityRepository $languageRepository */
+        $languageRepository = $this->container->get('language.repository');
+        $languages = $languageRepository->search($criteria, $context);
+
+        $available = [];
+        foreach ($languages as $language) {
+            $code = $language->getTranslationCode();
+            if ($code !== null && isset($copy[$code->getCode()])) {
+                $available[$code->getCode()] = $copy[$code->getCode()];
+            }
+        }
+
+        // A shop with no matching language at all still gets the English row,
+        // which is the same text the untranslated columns already carry.
+        return $available === [] ? ['en-GB' => $copy['en-GB']] : $available;
     }
 
     private function setPaymentMethodIsActive(bool $active, Context $context): void

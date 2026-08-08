@@ -1,0 +1,19 @@
+{
+  "paymos": {
+    "module": {
+      "title": "Paymos",
+      "description": "连接 Paymos"
+    },
+    "connect": {
+      "cardTitle": "连接 Paymos",
+      "intro": "把这个 Shopware 站点连接到 Paymos 中当前选定的项目。",
+      "button": "连接 Paymos",
+      "starting": "正在建立安全连接…",
+      "waiting": "等待批准。代码：{code}",
+      "connected": "Paymos 已连接。",
+      "blocked": "浏览器拦截了批准页面的新标签页。",
+      "blockedLink": "打开批准页面",
+      "blockedCode": "代码：{code}"
+    }
+  }
+}
