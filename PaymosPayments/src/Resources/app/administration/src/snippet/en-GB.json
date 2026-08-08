@@ -1,0 +1,19 @@
+{
+  "paymos": {
+    "module": {
+      "title": "Paymos",
+      "description": "Connect Paymos"
+    },
+    "connect": {
+      "cardTitle": "Connect Paymos",
+      "intro": "Connect this Shopware installation to the project currently selected in Paymos.",
+      "button": "Connect Paymos",
+      "starting": "Starting secure connection…",
+      "waiting": "Waiting for approval. Code: {code}",
+      "connected": "Paymos connected.",
+      "blocked": "Your browser blocked the approval tab.",
+      "blockedLink": "Open the approval page",
+      "blockedCode": "Code: {code}"
+    }
+  }
+}

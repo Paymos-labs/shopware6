@@ -1,0 +1,19 @@
+{
+  "paymos": {
+    "module": {
+      "title": "Paymos",
+      "description": "Подключить Paymos"
+    },
+    "connect": {
+      "cardTitle": "Подключение Paymos",
+      "intro": "Подключите эту установку Shopware к проекту, выбранному сейчас в Paymos.",
+      "button": "Подключить Paymos",
+      "starting": "Устанавливаем защищённое соединение…",
+      "waiting": "Ждём подтверждения. Код: {code}",
+      "connected": "Paymos подключён.",
+      "blocked": "Браузер заблокировал вкладку подтверждения.",
+      "blockedLink": "Открыть страницу подтверждения",
+      "blockedCode": "Код: {code}"
+    }
+  }
+}

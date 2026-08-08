@@ -1,0 +1,19 @@
+{
+  "paymos": {
+    "module": {
+      "title": "Paymos",
+      "description": "Paymos'u bağla"
+    },
+    "connect": {
+      "cardTitle": "Paymos'u bağla",
+      "intro": "Bu Shopware kurulumunu Paymos'ta seçili olan projeye bağlayın.",
+      "button": "Paymos'u bağla",
+      "starting": "Güvenli bağlantı kuruluyor…",
+      "waiting": "Onay bekleniyor. Kod: {code}",
+      "connected": "Paymos bağlandı.",
+      "blocked": "Tarayıcınız onay sekmesini engelledi.",
+      "blockedLink": "Onay sayfasını aç",
+      "blockedCode": "Kod: {code}"
+    }
+  }
+}
