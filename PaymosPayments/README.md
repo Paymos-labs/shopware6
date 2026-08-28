@@ -7,7 +7,7 @@ Official Paymos stablecoin payment integration for Shopware 6.
 1. Download the latest package from [GitHub Releases](https://github.com/paymos-labs/shopware6/releases/latest).
 2. Install and activate it using the standard Shopware 6 extension workflow.
 3. Open the intended project in the Paymos dashboard; that current project is used automatically.
-4. Open **Settings → Extensions → Paymos** and click **Connect Paymos**.
+4. Open **Settings → Plugins → Paymos** and click **Connect Paymos**. Mode and debug logging live separately, on the extension's own configuration card.
 5. Approve the displayed installation URL and current project in Paymos.
 
 Official packages are identical for every merchant and contain no API keys, API secrets, project IDs, webhook secrets, OAuth tokens, or device codes.
