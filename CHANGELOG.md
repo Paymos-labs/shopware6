@@ -6,6 +6,23 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The public release history also lives at [paymos.io/changelog](https://paymos.io/changelog).
 
+## [Unreleased]
+
+## [1.4.8] - 2026-08-28
+
+- release: the changelog rot had a cause, and it was not the one I named
+- audit: the shipped plugin and SDK docs described a product we stopped shipping
+- docs(plugins): eight README stubs become the front pages they already were
+- docs(plugins): the changelogs stopped in June and the audit never reached them
+- chore: bundle Paymos PHP SDK v1.4.0
+- chore: rebuild canonical CMS package
+
+### Changed
+- Install-time translations are filtered against the shop's own language table.
+  Writing a translation for a locale the shop has no language for is not
+  something a merchant can fix; a shop with only English and German gets exactly
+  those two, and gains Russian the moment the language is installed.
+
 ## [1.4.7] - 2026-08-08
 
 - fix(plugins): make the six shipped locales actually reach the merchant
