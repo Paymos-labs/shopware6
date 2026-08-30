@@ -1,8 +1,20 @@
 <?php
 
 declare(strict_types=1);
+require __DIR__ . '/stubs/symfony-shopware.php';
 
 define('PAYMOS_SW_PLUGIN_DIR', dirname(__DIR__) . DIRECTORY_SEPARATOR);
+
+// Any deprecation, notice or warning inside plugin code must fail the run:
+// platform installers (Magento DI compile above all) escalate PHP 8.4+
+// deprecations to fatals, and a silent one here is how rejections slip through.
+error_reporting(E_ALL);
+set_error_handler(static function ($severity, $message, $file, $line) {
+    if (!(error_reporting() & $severity)) {
+        return false;
+    }
+    throw new ErrorException($message, 0, $severity, $file, $line);
+});
 define('PAYMOS_SW_SRC_DIR', PAYMOS_SW_PLUGIN_DIR . 'PaymosPayments' . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR);
 
 spl_autoload_register(static function ($class) {
@@ -431,7 +443,7 @@ final class FakePaymosClient
     /** @var FakePaymosInvoices */
     public $invoices;
 
-    public function __construct(FakePaymosInvoices $invoices = null)
+    public function __construct(?FakePaymosInvoices $invoices = null)
     {
         $this->invoices = $invoices ?: new FakePaymosInvoices();
     }
