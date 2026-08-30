@@ -32,7 +32,7 @@ final class Reconciler
     public function __construct(
         ShopwareGatewayInterface $gateway,
         InvoiceStoreInterface $store,
-        callable $clientFactory = null
+        ?callable $clientFactory = null
     ) {
         $this->gateway = $gateway;
         $this->store = $store;

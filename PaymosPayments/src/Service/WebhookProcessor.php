@@ -47,7 +47,7 @@ final class WebhookProcessor
         ShopwareGatewayInterface $gateway,
         InvoiceStoreInterface $invoiceStore,
         EventStoreInterface $eventStore,
-        callable $clientFactory = null
+        ?callable $clientFactory = null
     ) {
         $this->gateway = $gateway;
         $this->invoiceStore = $invoiceStore;
