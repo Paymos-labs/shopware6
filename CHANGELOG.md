@@ -8,6 +8,17 @@ The public release history also lives at [paymos.io/changelog](https://paymos.io
 
 ## [Unreleased]
 
+## [1.4.10] - 2026-08-30
+
+- fix(plugins): CMS marketplace readiness spec, phases 1-3
+- chore: rebuild canonical CMS package
+
+### Changed
+- Install-time translations are filtered against the shop's own language table.
+  Writing a translation for a locale the shop has no language for is not
+  something a merchant can fix; a shop with only English and German gets exactly
+  those two, and gains Russian the moment the language is installed.
+
 ## [1.4.9] - 2026-08-30
 
 - fix(plugins): implicitly nullable factory params break Magento DI compile on PHP 8.5
