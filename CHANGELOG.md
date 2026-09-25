@@ -8,6 +8,72 @@ The public release history also lives at [paymos.io/changelog](https://paymos.io
 
 ## [Unreleased]
 
+## [1.4.15] - 2026-09-25
+
+- fix(shopware): BUG-189 заблокированная замена счёта больше не зовёт покупателя платить снова
+- fix(plugins): BUG-166 старый счёт закрывается на сервере до выпуска нового; открытый, оплаченный или 404 — в ручную проверку
+- chore: bundle Paymos PHP SDK v1.4.3
+- chore: rebuild canonical CMS package
+
+### Fixed
+- A blocked invoice replacement asked the buyer to pay again (BUG-189). The
+  payment was interrupted with Shopware's stock
+  `CHECKOUT__ASYNC_PAYMENT_PROCESS_INTERRUPTED`, and the edit-order page answers
+  every error code with "change the payment method or try again" above the
+  payment-method picker and the "Complete payment" button, while the old invoice
+  may already be paid. The handlers (6.5/6.6 and 6.7) now interrupt this case with
+  `PAYMOS__ORDER_NEEDS_REVIEW`, and the plugin's override of
+  `storefront/page/account/order/index.html.twig` shows the SDK buyer message
+  ("The store needs to review this order before payment can continue. Please
+  contact the store.") under the heading "This order needs review", with no
+  payment-method picker, terms checkboxes or submit button. Every other error
+  code, including a failed invoice creation, still gets the stock page. The
+  strings are in the new storefront snippet files
+  `Resources/snippet/<locale>/paymos.<locale>.json`; de-DE, ru-RU, es-ES, tr-TR
+  and zh-CN carry the English text until they are translated.
+- A changed order could leave its old invoice payable beside the new one
+  (BUG-166). When the transaction amount, the mode or the project changed, the
+  checkout cut a new invoice and left the old one open on Paymos, so a buyer
+  could pay both. The old invoice is now cancelled first, in its own
+  environment, through the SDK's `InvoiceReplacement`; the new one is cut only
+  after that cancel succeeds or Paymos reports the old one expired, cancelled
+  or underpaid. When the old invoice is paid, still payable (network picked,
+  funds confirming, part paid) or cannot be read — a 404 included — no new
+  invoice is cut and the payment is interrupted and the reason is logged under
+  `manual_review`. A 404 on the read of the live invoice no longer cuts a new
+  one either.
+- A late non-final webhook could reopen a finished order. Webhooks are
+  delivered at least once and in no particular order, and only paid orders were
+  guarded: an `invoice.underpaid_waiting` or `invoice.confirming` arriving after
+  the invoice had already ended underpaid, expired or cancelled moved the order
+  back into an open state. Nothing leaves a final status on the server, so once
+  one is recorded for an invoice every later event for it is ignored and the
+  final status stays recorded.
+- A returning buyer could be sent to an expired invoice. The checkout reused
+  the invoice it had already cut for the order whenever the amount and
+  currency still matched, but a Paymos invoice lives 30 minutes from creation
+  and may have ended unpaid since. It now reads the live invoice before reusing
+  it and cuts a new one when the old one expired, was cancelled or ended
+  underpaid. A paid invoice is never replaced.
+- A webhook retry that arrived while the first delivery was still being
+  processed was answered 200 "duplicate". Paymos gives a delivery 10 seconds and
+  retries, while a slow reverse-verification call can take longer; the retry was
+  acknowledged as delivered, and if the first attempt then failed the event was
+  lost. An event that is only locked, not yet committed, is now answered 409 so
+  Paymos tries again, and the lock the first delivery holds is left alone.
+- An invoice nobody started is replaced only once its deadline is five minutes
+  behind the store's clock (`InvoiceRenewal::CLOCK_SKEW_SECONDS` in the bundled
+  SDK). The deadline is the server's, and a store clock running ahead could cut
+  a second invoice while the buyer could still pick a network on the first.
+  Normally the server marks such an invoice expired within seconds, and that
+  status decides first.
+
+### Changed
+- Install-time translations are filtered against the shop's own language table.
+  Writing a translation for a locale the shop has no language for is not
+  something a merchant can fix; a shop with only English and German gets exactly
+  those two, and gains Russian the moment the language is installed.
+
 ## [1.4.14] - 2026-09-25
 
 - fix(plugins): BUG-163/BUG-164 остальные плагины — замена счёта только по ответу сервера закреплена тестами, комментарии о сроке счёта исправлены

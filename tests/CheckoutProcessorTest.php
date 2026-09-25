@@ -76,6 +76,9 @@ function test_sw_checkout_version_bumps_external_id_when_amount_changes()
     assertSameValue(2, count($invoices->payloads), 'A changed amount creates a fresh invoice.');
     assertSameValue('10001_0', $invoices->payloads[0]['external_order_id'], 'First external id has suffix 0.');
     assertSameValue('10001_1', $invoices->payloads[1]['external_order_id'], 'Changed order bumps the suffix to 1.');
+    // BUG-166: the old invoice is cancelled on the server first, or the buyer
+    // could pay both.
+    assertSameValue(array('create', 'cancel inv_123', 'create'), $invoices->calls, 'the old invoice is cancelled before the new one is created.');
 }
 
 function test_sw_checkout_omits_client_id_for_guest()
@@ -202,6 +205,9 @@ function test_sw_checkout_renews_an_invoice_that_expired_on_the_server()
     assertSameValue('0', $second['reused'], 'an expired invoice must not be reused.');
     assertSameValue(2, count($invoices->payloads), 'a fresh invoice must be created.');
     assertSameValue('10001_1', $invoices->payloads[1]['external_order_id'], 'the fresh invoice needs a new external order id.');
+    // Still awaiting_client on the server (its expiry job has not run): it is
+    // cancelled before the replacement.
+    assertSameValue(array('create', 'get inv_123', 'cancel inv_123', 'create'), $invoices->calls, 'read, cancel, create.');
 }
 
 function test_sw_checkout_renews_without_a_lookup_when_the_invoice_is_already_final()
@@ -220,6 +226,7 @@ function test_sw_checkout_renews_without_a_lookup_when_the_invoice_is_already_fi
 
     assertSameValue('0', $second['reused'], 'a cancelled invoice must not be reused.');
     assertSameValue('10001_1', $invoices->payloads[1]['external_order_id'], 'the fresh invoice needs a new external order id.');
+    assertSameValue(array('create', 'create'), $invoices->calls, 'a recorded final status needs neither a read nor a cancel.');
 }
 
 function test_sw_checkout_keeps_an_invoice_the_server_holds_open_past_the_old_deadline()
@@ -246,4 +253,108 @@ function test_sw_checkout_keeps_an_invoice_the_server_holds_open_past_the_old_de
         assertSameValue('1', $second['reused'], $status . ': the open invoice is reused.');
         assertSameValue(1, count($invoices->payloads), $status . ': no second invoice is created.');
     }
+}
+
+function sw_start_expecting_block(CheckoutProcessor $processor, array $order)
+{
+    try {
+        $processor->start($order, sw_settings());
+    } catch (\Paymos\Plugin\InvoiceReplacementBlockedException $e) {
+        return $e;
+    }
+
+    throw new RuntimeException('checkout must refuse to replace an invoice it cannot prove closed.');
+}
+
+function test_sw_checkout_does_not_replace_an_invoice_the_buyer_can_still_pay()
+{
+    // BUG-166: only awaiting_client is cancellable on the server. A network
+    // picked, funds confirming, a part paid or a full payment keeps the old
+    // invoice; no second one is cut.
+    foreach (array('awaiting_payment', 'confirming', 'underpaid_waiting', 'paid') as $status) {
+        sw_write_generated_config();
+
+        $store = new InMemoryInvoiceStore();
+        $invoices = new FakePaymosInvoices(array(), array('invoice_id' => 'inv_123', 'status' => $status));
+        $processor = new CheckoutProcessor($store, static function () use ($invoices) {
+            return new FakePaymosClient($invoices);
+        });
+        $processor->start(sw_order(), sw_settings());
+        $invoices->cancelException = sw_api_error(409, 'invoice_cannot_be_cancelled', 'Invoice cannot be cancelled in status ' . $status . '.');
+
+        $e = sw_start_expecting_block($processor, sw_order(array('amount' => '150.00')));
+
+        assertSameValue($status, $e->result()->status(), $status . ': the blocking status is reported.');
+        assertSameValue(array('create', 'cancel inv_123', 'get inv_123'), $invoices->calls, $status . ': cancel, read, and no second create.');
+        assertSameValue('awaiting_client', (string) $store->findByTransactionId('txn_1')['status'], $status . ': an open or paid status read here is not recorded.');
+        assertSameValue('10001_0', (string) $store->findByTransactionId('txn_1')['external_order_id'], $status . ': the old invoice stays the order\'s invoice.');
+    }
+}
+
+function test_sw_checkout_does_not_replace_an_invoice_the_server_answers_404_for()
+{
+    sw_write_generated_config();
+
+    $store = new InMemoryInvoiceStore();
+    $invoices = new FakePaymosInvoices();
+    $processor = new CheckoutProcessor($store, static function () use ($invoices) {
+        return new FakePaymosClient($invoices);
+    });
+    $processor->start(sw_order(), sw_settings());
+    $invoices->cancelException = sw_api_error(404, 'not_found', 'Invoice not found.');
+
+    $e = sw_start_expecting_block($processor, sw_order(array('amount' => '150.00')));
+
+    assertSameValue(\Paymos\Plugin\InvoiceReplacementResult::REASON_NOT_FOUND, $e->result()->reason(), 'the 404 is the reason.');
+    assertSameValue(array('create', 'cancel inv_123'), $invoices->calls, 'no invoice is created after a 404.');
+}
+
+function test_sw_checkout_does_not_renew_when_the_lookup_answers_404()
+{
+    // Same amount; before BUG-166 a 404 on the read cut a new invoice.
+    sw_write_generated_config();
+
+    $store = new InMemoryInvoiceStore();
+    $invoices = new FakePaymosInvoices();
+    $processor = new CheckoutProcessor($store, static function () use ($invoices) {
+        return new FakePaymosClient($invoices);
+    });
+    $processor->start(sw_order(), sw_settings());
+    $invoices->getException = sw_api_error(404, 'not_found', 'Invoice not found.');
+    $invoices->cancelException = sw_api_error(404, 'not_found', 'Invoice not found.');
+
+    sw_start_expecting_block($processor, sw_order());
+
+    assertSameValue(array('create', 'get inv_123', 'cancel inv_123'), $invoices->calls, 'read, cancel attempt, and no second create.');
+}
+
+function test_sw_checkout_cancels_the_old_invoice_in_its_own_environment()
+{
+    sw_write_generated_config(array('environments' => array('live' => array(
+        'base_url' => 'https://api.paymos.test',
+        'api_key' => 'pk_live_123',
+        'api_secret' => 'sk_live_123',
+        'project_id' => 'prj_live_123',
+        'webhook_secret' => 'whsec_live',
+    ))));
+
+    $store = new InMemoryInvoiceStore();
+    $sandbox = new FakePaymosInvoices();
+    $live = new FakePaymosInvoices(array(
+        'invoice_id' => 'inv_live',
+        'payment_url' => 'https://pay.paymos.test/inv_live',
+        'status' => 'awaiting_client',
+    ));
+    $processor = new CheckoutProcessor($store, static function ($config, $environment = null) use ($sandbox, $live) {
+        $environment = $environment === null ? $config->environment() : $environment;
+
+        return new FakePaymosClient($environment === 'live' ? $live : $sandbox);
+    });
+    $processor->start(sw_order(), sw_settings());
+
+    $result = $processor->start(sw_order(), sw_settings(array('mode' => 'live')));
+
+    assertSameValue('inv_live', $result['invoice_id'], 'the live invoice is issued.');
+    assertSameValue(array('create', 'cancel inv_123'), $sandbox->calls, 'the sandbox invoice is cancelled with sandbox credentials.');
+    assertSameValue(array('create'), $live->calls, 'only the create goes to live.');
 }

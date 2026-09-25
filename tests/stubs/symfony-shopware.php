@@ -97,7 +97,101 @@ namespace Shopware\Core\Checkout\Payment\Cart\PaymentHandler {
 
 namespace Shopware\Core\Checkout\Payment {
     if (!class_exists(PaymentException::class)) {
+        /**
+         * The slice of the real class the handlers rely on: the HttpException
+         * constructor (status, error code, message, parameters, previous) and
+         * the 6.6+ asyncProcessInterrupted(). The storefront reads getErrorCode()
+         * into ?error-code= on the edit-order page (PaymentService /
+         * PaymentProcessor), so the code is what the buyer ends up seeing.
+         */
         class PaymentException extends \Exception
+        {
+            const PAYMENT_ASYNC_PROCESS_INTERRUPTED = 'CHECKOUT__ASYNC_PAYMENT_PROCESS_INTERRUPTED';
+            const PAYMENT_ASYNC_FINALIZE_INTERRUPTED = 'CHECKOUT__ASYNC_PAYMENT_FINALIZE_INTERRUPTED';
+            const PAYMENT_CUSTOMER_CANCELED_EXTERNAL = 'CHECKOUT__CUSTOMER_CANCELED_EXTERNAL_PAYMENT';
+
+            /** @var int */
+            protected $statusCode;
+
+            /** @var string */
+            protected $errorCode;
+
+            /** @var array<string, mixed> */
+            protected $parameters;
+
+            public function __construct(int $statusCode, string $errorCode, string $message, array $parameters = array(), ?\Throwable $previous = null)
+            {
+                $this->statusCode = $statusCode;
+                $this->errorCode = $errorCode;
+                $this->parameters = $parameters;
+                parent::__construct(strtr($message, self::placeholders($parameters)), 0, $previous);
+            }
+
+            public static function asyncProcessInterrupted(string $orderTransactionId, string $errorMessage, ?\Throwable $e = null): self
+            {
+                return new self(400, self::PAYMENT_ASYNC_PROCESS_INTERRUPTED, 'The asynchronous payment process was interrupted due to the following error:' . \PHP_EOL . '{{ errorMessage }}', array('errorMessage' => $errorMessage, 'orderTransactionId' => $orderTransactionId), $e);
+            }
+
+            public static function asyncFinalizeInterrupted(string $orderTransactionId, string $errorMessage, ?\Throwable $e = null): self
+            {
+                return new self(400, self::PAYMENT_ASYNC_FINALIZE_INTERRUPTED, 'The asynchronous payment finalize was interrupted due to the following error:' . \PHP_EOL . '{{ errorMessage }}', array('errorMessage' => $errorMessage, 'orderTransactionId' => $orderTransactionId), $e);
+            }
+
+            public static function customerCanceled(string $orderTransactionId, string $additionalInformation, ?\Throwable $e = null): self
+            {
+                return new self(400, self::PAYMENT_CUSTOMER_CANCELED_EXTERNAL, 'The customer canceled the external payment process. {{ additionalInformation }}', array('additionalInformation' => $additionalInformation, 'orderTransactionId' => $orderTransactionId), $e);
+            }
+
+            public function getErrorCode(): string
+            {
+                return $this->errorCode;
+            }
+
+            public function getStatusCode(): int
+            {
+                return $this->statusCode;
+            }
+
+            /** @return mixed */
+            public function getParameter(string $key)
+            {
+                return isset($this->parameters[$key]) ? $this->parameters[$key] : null;
+            }
+
+            /** @return array<string, string> */
+            private static function placeholders(array $parameters)
+            {
+                $map = array();
+                foreach ($parameters as $key => $value) {
+                    if (is_scalar($value)) {
+                        $map['{{ ' . $key . ' }}'] = (string) $value;
+                    }
+                }
+
+                return $map;
+            }
+        }
+    }
+}
+
+namespace Shopware\Core\Checkout\Payment\Cart {
+    // The real homes of the two transaction structs the handlers type-hint
+    // (6.5/6.6 and 6.7). Tests hand in subclasses carrying the getters.
+    if (!class_exists(AsyncPaymentTransactionStruct::class)) {
+        class AsyncPaymentTransactionStruct
+        {
+        }
+    }
+    if (!class_exists(PaymentTransactionStruct::class)) {
+        class PaymentTransactionStruct
+        {
+        }
+    }
+}
+
+namespace Psr\Log {
+    if (!interface_exists(LoggerInterface::class)) {
+        interface LoggerInterface
         {
         }
     }
@@ -225,6 +319,23 @@ namespace Symfony\Component\HttpFoundation {
     if (!class_exists(Request::class)) {
         class Request
         {
+        }
+    }
+    if (!class_exists(RedirectResponse::class)) {
+        class RedirectResponse
+        {
+            /** @var string */
+            private $targetUrl;
+
+            public function __construct(string $url)
+            {
+                $this->targetUrl = $url;
+            }
+
+            public function getTargetUrl(): string
+            {
+                return $this->targetUrl;
+            }
         }
     }
 }

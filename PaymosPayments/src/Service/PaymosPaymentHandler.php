@@ -79,11 +79,16 @@ final class PaymosPaymentHandler implements AsynchronousPaymentHandlerInterface
             $order = $this->buildOrderArray($transaction);
             $result = $this->checkoutProcessor->start($order, $this->settings($salesChannelId));
         } catch (\Throwable $e) {
-            $this->logger->error('[Paymos] Could not start checkout.', array('error' => $e->getMessage()));
-            throw PaymentException::asyncProcessInterrupted(
-                $orderTransactionId,
-                'Paymos could not create the payment. ' . $e->getMessage()
-            );
+            $context = array('error' => $e->getMessage());
+            if ($e instanceof \Paymos\Plugin\InvoiceReplacementBlockedException) {
+                // No second invoice was cut while the previous one may still be
+                // paid (BUG-166): the merchant has to review this order.
+                $context['manual_review'] = $e->result()->summary();
+            }
+            $this->logger->error('[Paymos] Could not start checkout.', $context);
+            // A blocked replacement gets its own error code, so the storefront
+            // shows "contact the store" instead of offering to pay again (BUG-189).
+            throw CheckoutFailure::paymentException($orderTransactionId, $e);
         }
 
         $paymentUrl = isset($result['payment_url']) ? (string) $result['payment_url'] : '';

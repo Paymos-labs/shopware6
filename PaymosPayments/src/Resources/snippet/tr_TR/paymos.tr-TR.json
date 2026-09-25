@@ -1,0 +1,8 @@
+{
+    "paymosPayments": {
+        "reviewRequired": {
+            "heading": "This order needs review",
+            "message": "The store needs to review this order before payment can continue. Please contact the store."
+        }
+    }
+}

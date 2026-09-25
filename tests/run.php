@@ -55,6 +55,8 @@ $testFiles = array(
     __DIR__ . '/ReconcilerTest.php',
     __DIR__ . '/FinalizeDecisionTest.php',
     __DIR__ . '/ReturnBridgeResolverTest.php',
+    __DIR__ . '/PaymentHandlerTest.php',
+    __DIR__ . '/StorefrontReviewPageTest.php',
 );
 
 foreach ($testFiles as $file) {

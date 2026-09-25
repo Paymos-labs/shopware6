@@ -1,0 +1,58 @@
+{% sw_extends '@Storefront/storefront/page/account/order/index.html.twig' %}
+
+{#
+    Paymos interrupts the payment with PAYMOS__ORDER_NEEDS_REVIEW
+    (PaymosPayments\Service\CheckoutFailure::REVIEW_REQUIRED) when it refused to
+    replace an invoice it could not prove closed (BUG-166): the old one may
+    already be paid. The stock page answers every error code with "change the
+    payment method or try again" and a "Complete payment" form (BUG-189), so for
+    this one code the page shows the store's review message and nothing to pay
+    with. Every other code gets the stock page untouched.
+#}
+
+{% block page_checkout_confirm_header %}
+    {% if page.errorCode == 'PAYMOS__ORDER_NEEDS_REVIEW' %}
+        {% sw_include '@Storefront/storefront/utilities/alert.html.twig' with {
+            type: 'warning',
+            content: 'paymosPayments.reviewRequired.message'|trans|sw_sanitize
+        } %}
+
+        <h1 class="confirm-main-header">
+            {{ 'paymosPayments.reviewRequired.heading'|trans|sw_sanitize }}
+        </h1>
+    {% else %}
+        {{ parent() }}
+    {% endif %}
+{% endblock %}
+
+{% block page_checkout_confirm_payment %}
+    {% if page.errorCode == 'PAYMOS__ORDER_NEEDS_REVIEW' %}
+        {# No payment-method picker: switching methods would be a second payment. #}
+    {% else %}
+        {{ parent() }}
+    {% endif %}
+{% endblock %}
+
+{% block page_checkout_confirm_tos_control %}
+    {% if page.errorCode == 'PAYMOS__ORDER_NEEDS_REVIEW' %}
+        {# Nothing to accept: there is no submit button. #}
+    {% else %}
+        {{ parent() }}
+    {% endif %}
+{% endblock %}
+
+{% block page_checkout_confirm_revocation_control %}
+    {% if page.errorCode == 'PAYMOS__ORDER_NEEDS_REVIEW' %}
+        {# Nothing to accept: there is no submit button. #}
+    {% else %}
+        {{ parent() }}
+    {% endif %}
+{% endblock %}
+
+{% block page_checkout_confirm_form_submit %}
+    {% if page.errorCode == 'PAYMOS__ORDER_NEEDS_REVIEW' %}
+        {# No submit: the store reviews the order first. #}
+    {% else %}
+        {{ parent() }}
+    {% endif %}
+{% endblock %}
