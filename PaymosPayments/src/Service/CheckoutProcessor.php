@@ -8,6 +8,8 @@ use Paymos\Client;
 use Paymos\Exception\ApiException;
 use Paymos\Exception\NotFoundException;
 use Paymos\Plugin\InvoiceRenewal;
+use Paymos\Plugin\InvoiceReplacement;
+use Paymos\Plugin\InvoiceReplacementBlockedException;
 use Paymos\Plugin\StatusMapper;
 
 /**
@@ -84,6 +86,10 @@ final class CheckoutProcessor
                 'payment_url' => (string) $existing['payment_url'],
                 'reused' => '1',
             );
+        }
+
+        if (is_array($existing)) {
+            $this->closeBeforeReplacing($existing, $config);
         }
 
         // Deterministic, version-bumped external order id: reuse while the
@@ -167,7 +173,8 @@ final class CheckoutProcessor
      * its deadline (InvoiceRenewal). An invoice the server holds open — network
      * picked, funds confirming, part paid — is kept. When the server cannot be
      * reached the existing link is kept — the checkout it leads to is down just the
-     * same.
+     * same. A 404 is not proof the invoice is gone (see closeBeforeReplacing), so
+     * it goes on to the replacement, which refuses it.
      *
      * @param array<string, mixed> $row
      */
@@ -239,13 +246,50 @@ final class CheckoutProcessor
             && trim((string) $row['payment_url']) !== '';
     }
 
-    private function client(Config $config)
+    /**
+     * The transaction's invoice is about to be replaced (the order changed, or
+     * the invoice can no longer be paid). Cancel it on the server first, or the
+     * buyer could pay both (BUG-166): the SDK cancels it, or confirms from the
+     * server that it ended unpaid. Anything else — paid, still payable, 404,
+     * no answer — keeps the old invoice and stops the checkout; the payment
+     * handler logs the summary for manual review. A payment that still lands on
+     * the old invoice reopens the transaction and goes through the amount guard
+     * (OrderMapper).
+     *
+     * @param array<string, mixed> $row
+     */
+    private function closeBeforeReplacing(array $row, Config $config)
     {
-        if ($this->clientFactory !== null) {
-            return call_user_func($this->clientFactory, $config);
+        $environment = (string) $row['environment'];
+        $recorded = isset($row['status']) ? (string) $row['status'] : '';
+        $result = (new InvoiceReplacement(function () use ($config, $environment) {
+            return $this->client($config, $environment);
+        }))->close((string) $row['paymos_invoice_id'], $recorded);
+
+        if (!$result->isClosed()) {
+            throw new InvoiceReplacementBlockedException($result);
         }
 
-        return new Client($config->clientConfig());
+        // Record the final status before the new row exists, so the old
+        // invoice's own webhook (invoice.cancelled after our cancel) finds a
+        // final row and is ignored as stale.
+        if ($result->status() !== '' && $result->status() !== $recorded) {
+            $this->store->updateStatus((string) $row['paymos_invoice_id'], $result->status());
+        }
+    }
+
+    /**
+     * @param string|null $environment The environment the invoice lives in; the selected mode by default.
+     */
+    private function client(Config $config, $environment = null)
+    {
+        if ($this->clientFactory !== null) {
+            return call_user_func($this->clientFactory, $config, $environment);
+        }
+
+        return new Client($environment === null
+            ? $config->clientConfig()
+            : $config->clientConfigForEnvironment($environment));
     }
 
     private function formatAmount($amount)

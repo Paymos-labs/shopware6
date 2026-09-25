@@ -422,6 +422,15 @@ final class FakePaymosInvoices
     /** @var array<int, array<string, mixed>> */
     public $payloads = array();
 
+    /** @var array<int, string> every call in order: "create", "get <id>", "cancel <id>" */
+    public $calls = array();
+
+    /** @var \Exception|null thrown by cancel() instead of answering */
+    public $cancelException;
+
+    /** @var \Exception|null thrown by get() instead of answering */
+    public $getException;
+
     /** @var array<string, mixed> */
     private $createResponse;
 
@@ -440,6 +449,7 @@ final class FakePaymosInvoices
 
     public function create(array $payload)
     {
+        $this->calls[] = 'create';
         $this->payloads[] = $payload;
 
         return $this->createResponse;
@@ -447,8 +457,35 @@ final class FakePaymosInvoices
 
     public function get($invoiceId)
     {
+        $this->calls[] = 'get ' . $invoiceId;
+        if ($this->getException !== null) {
+            throw $this->getException;
+        }
+
         return $this->getResponse;
     }
+
+    /** Like the server: only an unstarted invoice is cancelled; the answer is the cancelled invoice. */
+    public function cancel($invoiceId, $reason)
+    {
+        $this->calls[] = 'cancel ' . $invoiceId;
+        if ($this->cancelException !== null) {
+            throw $this->cancelException;
+        }
+
+        return array('invoice_id' => (string) $invoiceId, 'status' => 'cancelled', 'is_final' => true);
+    }
+}
+
+function sw_api_error($status, $code, $detail)
+{
+    return \Paymos\Exception\ApiException::fromResponse($status, json_encode(array(
+        'type' => 'https://paymos.io/errors/' . $code,
+        'title' => 'Error',
+        'status' => $status,
+        'detail' => $detail,
+        'code' => $code,
+    )), array());
 }
 
 final class FakePaymosClient
