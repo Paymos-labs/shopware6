@@ -178,3 +178,72 @@ function test_sw_checkout_reuse_refreshes_return_url_for_retry()
         'Reuse refreshes the snapshot return URL to the latest Shopware token.'
     );
 }
+
+function test_sw_checkout_renews_an_invoice_that_expired_on_the_server()
+{
+    // BUG-090 (Shopware): an afterOrder payment retry after the Paymos
+    // invoice's 30 minutes ran out. Same amount, same currency — the old link
+    // leads to an expired checkout, so a new invoice is cut.
+    sw_write_generated_config();
+
+    $store = new InMemoryInvoiceStore();
+    $invoices = new FakePaymosInvoices(array(), array(
+        'invoice_id' => 'inv_123',
+        'status' => 'awaiting_client',
+        'expires_at' => time() - 3600,
+    ));
+    $processor = new CheckoutProcessor($store, static function () use ($invoices) {
+        return new FakePaymosClient($invoices);
+    });
+
+    $processor->start(sw_order(), sw_settings());
+    $second = $processor->start(sw_order(), sw_settings());
+
+    assertSameValue('0', $second['reused'], 'an expired invoice must not be reused.');
+    assertSameValue(2, count($invoices->payloads), 'a fresh invoice must be created.');
+    assertSameValue('10001_1', $invoices->payloads[1]['external_order_id'], 'the fresh invoice needs a new external order id.');
+}
+
+function test_sw_checkout_renews_without_a_lookup_when_the_invoice_is_already_final()
+{
+    sw_write_generated_config();
+
+    $store = new InMemoryInvoiceStore();
+    $invoices = new FakePaymosInvoices();
+    $processor = new CheckoutProcessor($store, static function () use ($invoices) {
+        return new FakePaymosClient($invoices);
+    });
+
+    $processor->start(sw_order(), sw_settings());
+    $store->updateStatus('inv_123', 'cancelled');
+    $second = $processor->start(sw_order(), sw_settings());
+
+    assertSameValue('0', $second['reused'], 'a cancelled invoice must not be reused.');
+    assertSameValue('10001_1', $invoices->payloads[1]['external_order_id'], 'the fresh invoice needs a new external order id.');
+}
+
+function test_sw_checkout_keeps_an_invoice_the_server_holds_open_past_the_old_deadline()
+{
+    // BUG-163: confirming a network moves expires_at on the server and sends
+    // no webhook. Only the server's answer decides; an open invoice is kept.
+    foreach (array('awaiting_payment', 'confirming', 'underpaid_waiting') as $status) {
+        sw_write_generated_config();
+
+        $store = new InMemoryInvoiceStore();
+        $invoices = new FakePaymosInvoices(array(), array(
+            'invoice_id' => 'inv_123',
+            'status' => $status,
+            'is_final' => false,
+            'expires_at' => time() - 3600,
+        ));
+        $processor = new CheckoutProcessor($store, static function () use ($invoices) {
+            return new FakePaymosClient($invoices);
+        });
+
+        $processor->start(sw_order(), sw_settings());
+        $second = $processor->start(sw_order(), sw_settings());
+
+        assertSameValue('1', $second['reused'], $status . ': the open invoice is reused.');
+        assertSameValue(1, count($invoices->payloads), $status . ': no second invoice is created.');
+    }
+}

@@ -102,3 +102,18 @@ function test_sw_event_store_commit_without_remember_is_noop()
 
     assertSameValue(0, count($connection->rows), 'commit()/release() with no pending event must be no-ops.');
 }
+
+function test_sw_event_store_tells_a_locked_event_from_a_committed_one()
+{
+    // BUG-103: remember() says "seen" for both; isCommitted() must not.
+    $connection = new FakeDbalConnection();
+    $first = new EventStore($connection);
+    assertTrueValue($first->remember('evt_lock', 604800), 'first delivery takes the lock.');
+
+    $retry = new EventStore($connection);
+    assertFalseValue($retry->remember('evt_lock', 604800), 'a retry while the lock is held is not new.');
+    assertFalseValue($retry->isCommitted('evt_lock'), 'a locked, uncommitted event is not committed.');
+
+    $first->commit();
+    assertTrueValue($retry->isCommitted('evt_lock'), 'after commit the event is committed.');
+}
