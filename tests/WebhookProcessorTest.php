@@ -231,3 +231,44 @@ function test_sw_webhook_missing_config_returns_500()
 
     assertSameValue(500, $result->statusCode(), 'Missing config returns 500.');
 }
+
+function test_sw_webhook_ignores_a_stale_event_after_a_final_status()
+{
+    // BUG-135: the invoice already ended expired and the transaction is
+    // cancelled. A delayed confirming for the same invoice must not reopen the
+    // transaction — nothing leaves a final status on the server.
+    sw_write_generated_config();
+
+    $gateway = new FakeShopwareGateway(array('txn_1' => 'cancelled'));
+    $store = sw_seeded_store(array('status' => 'expired'));
+    $processor = new WebhookProcessor($gateway, $store, new InMemoryEventStore());
+
+    $body = json_encode(sw_invoice_event('evt_stale', 'invoice.confirming', 'confirming'));
+    $result = $processor->handle($body, sw_signed_header('whsec_sandbox', $body, 1709000000), sw_settings(), 1709000000);
+
+    assertSameValue(200, $result->statusCode(), 'a stale event is acknowledged, not retried.');
+    assertSameValue('cancelled', $gateway->states['txn_1'], 'a stale event after a final status must not reopen the transaction.');
+    assertSameValue('expired', $store->findByExternalOrderId('10001_0')['status'], 'the final status must stay recorded.');
+}
+
+function test_sw_webhook_answers_409_while_the_event_is_still_being_processed()
+{
+    // BUG-103: another delivery of this event holds the lock and has not
+    // finished. A 200 "duplicate" would mark it delivered — lost if that
+    // delivery then fails. Answer 409 and leave the lock alone.
+    sw_write_generated_config();
+
+    $connection = new FakeDbalConnection();
+    assertTrueValue((new PaymosPayments\Service\EventStore($connection))->remember('evt_inflight', 604800), 'the first delivery holds the lock.');
+    $gateway = new FakeShopwareGateway(array('txn_1' => 'in_progress'));
+    $processor = new WebhookProcessor($gateway, sw_seeded_store(), new PaymosPayments\Service\EventStore($connection), static function () {
+        return sw_reverse_client();
+    });
+
+    $body = json_encode(sw_invoice_event('evt_inflight', 'invoice.paid', 'paid'));
+    $result = $processor->handle($body, sw_signed_header('whsec_sandbox', $body, 1709000000), sw_settings(), 1709000000);
+
+    assertSameValue(409, $result->statusCode(), 'an event still in flight must be answered non-2xx so the server retries.');
+    assertTrueValue(isset($connection->rows['evt_inflight']), 'the retry must not release the lock the first delivery still holds.');
+    assertSameValue('in_progress', $gateway->states['txn_1'], 'nothing may be applied while the event is in flight.');
+}

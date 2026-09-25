@@ -103,6 +103,19 @@ final class FakeDbalConnection extends \Doctrine\DBAL\Connection
     }
 
     /**
+     * Only EventStore::isCommitted() reads a row here: SELECT ... WHERE event_id = :id.
+     *
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>|false
+     */
+    public function fetchAssociative($sql, array $params = array(), array $types = array())
+    {
+        $id = isset($params['id']) ? (string) $params['id'] : '';
+
+        return $id !== '' && isset($this->rows[$id]) ? $this->rows[$id] : false;
+    }
+
+    /**
      * @param array<string, mixed> $data
      */
     public function insert($table, array $data, array $types = array())

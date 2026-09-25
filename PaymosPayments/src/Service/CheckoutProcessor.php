@@ -6,6 +6,9 @@ namespace PaymosPayments\Service;
 
 use Paymos\Client;
 use Paymos\Exception\ApiException;
+use Paymos\Exception\NotFoundException;
+use Paymos\Plugin\InvoiceRenewal;
+use Paymos\Plugin\StatusMapper;
 
 /**
  * Flow A — checkout to invoice. Framework-agnostic: the Shopware payment
@@ -62,7 +65,8 @@ final class CheckoutProcessor
         }
 
         $existing = $this->store->findByTransactionId($transactionId);
-        if (is_array($existing) && $this->snapshotMatches($existing, $amount, $currency, $config)) {
+        if (is_array($existing) && $this->snapshotMatches($existing, $amount, $currency, $config)
+            && $this->keepsExistingInvoice($existing, $config)) {
             // Reuse the existing invoice, but refresh the Shopware return URL:
             // an afterOrderEnabled retry calls pay() again with a FRESH
             // _sw_payment_token, and the return bridge must hand back the latest
@@ -145,6 +149,55 @@ final class CheckoutProcessor
             'payment_url' => $paymentUrl,
             'reused' => '0',
         );
+    }
+
+    /**
+     * Whether the Paymos invoice behind a matching snapshot is still the one to
+     * send the buyer to.
+     *
+     * A matching amount is not enough: the server answers a repeated
+     * external_order_id with the same invoice whatever became of it, and a buyer
+     * returning after it ended would land on an expired checkout. Its deadline is
+     * the server's, not a copy kept here: confirming a network moves expires_at to
+     * now + InvoiceOptions.PaymentTtl and sends no webhook. So: a row that already
+     * ended unpaid is renewed at once (that final status came from the server and
+     * never changes again); a paid one is kept (a second invoice would invite a
+     * second payment); anything else is read back from the server (one GET) and
+     * renewed only if the server says it ended unpaid or was never started before
+     * its deadline (InvoiceRenewal). An invoice the server holds open — network
+     * picked, funds confirming, part paid — is kept. When the server cannot be
+     * reached the existing link is kept — the checkout it leads to is down just the
+     * same.
+     *
+     * @param array<string, mixed> $row
+     */
+    private function keepsExistingInvoice(array $row, Config $config)
+    {
+        if (InvoiceRenewal::isRequired($row)) {
+            return false;
+        }
+        if (StatusMapper::isFinalStatus(isset($row['status']) ? (string) $row['status'] : '')) {
+            return true;
+        }
+
+        try {
+            $invoice = $this->client($config)->invoices()->get((string) $row['paymos_invoice_id']);
+        } catch (NotFoundException $e) {
+            return false;
+        } catch (\Exception $e) {
+            return true;
+        }
+
+        if (!is_array($invoice) || !InvoiceRenewal::isRequired($invoice)) {
+            return true;
+        }
+
+        $status = $this->responseField($invoice, array('status'));
+        if ($status !== '') {
+            $this->store->updateStatus((string) $row['paymos_invoice_id'], $status);
+        }
+
+        return false;
     }
 
     /**
