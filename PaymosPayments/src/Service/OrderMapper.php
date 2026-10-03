@@ -75,16 +75,25 @@ final class OrderMapper
             return false;
         }
 
+        // The CMS may have committed before the invoice snapshot was saved.
+        if ($action === StatusMapper::ACTION_PAYMENT_COMPLETE && in_array($currentState, self::PAID_STATES, true)) {
+            return false;
+        }
+
         if ($action === StatusMapper::ACTION_PAYMENT_COMPLETE) {
-            if (!$this->amountSafe($event, $row)) {
+            $currentOrder = $this->gateway->orderContext($transactionId);
+            if (!is_array($currentOrder)) {
+                throw new \RuntimeException('Shopware order transaction could not be read before payment.');
+            }
+            if (!$this->amountSafe($event, $row, $currentOrder)) {
                 // Amount/currency drift on a reverse-verified paid invoice is not a
                 // transient failure — do NOT throw (that 400s and the server retries
                 // forever). Hold for manual review and acknowledge the webhook.
                 $this->gateway->log('Paymos payment needs manual review. ' . AmountGuard::mismatchSummary(
                     $row['amount'],
                     $row['currency'],
-                    (string) $row['amount'],
-                    (string) $row['currency'],
+                    isset($currentOrder['amount']) ? (string) $currentOrder['amount'] : '',
+                    isset($currentOrder['currency']) ? (string) $currentOrder['currency'] : '',
                     $event->orderAmount(),
                     $event->orderCurrency()
                 ));
@@ -137,13 +146,13 @@ final class OrderMapper
     /**
      * @param array<string, mixed> $row
      */
-    private function amountSafe(WebhookEvent $event, array $row)
+    private function amountSafe(WebhookEvent $event, array $row, array $currentOrder)
     {
         return AmountGuard::isSafeToComplete(
             $row['amount'],
             $row['currency'],
-            $row['amount'],
-            $row['currency'],
+            isset($currentOrder['amount']) ? (string) $currentOrder['amount'] : '',
+            isset($currentOrder['currency']) ? (string) $currentOrder['currency'] : '',
             $event->orderAmount(),
             $event->orderCurrency()
         );
