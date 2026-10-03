@@ -183,9 +183,10 @@ final class WebhookProcessor
             return false;
         }
 
+        $applied = (new OrderMapper($this->gateway))->apply($event, $row, $config->debugLogging());
         $this->invoiceStore->updateStatus($event->invoiceId(), $event->status());
 
-        return (new OrderMapper($this->gateway))->apply($event, $row, $config->debugLogging());
+        return $applied;
     }
 
     /**

@@ -305,6 +305,8 @@ function sw_reverse_client(array $invoiceResponse = array(), $timestamp = 170900
  */
 final class FakeShopwareGateway implements PaymosPayments\Service\ShopwareGatewayInterface
 {
+    public $failBeforePayment = false;
+    public $failAfterPayment = false;
     /** @var array<string, string> Current technical state per transaction id. */
     public $states = array();
 
@@ -317,10 +319,17 @@ final class FakeShopwareGateway implements PaymosPayments\Service\ShopwareGatewa
     public function __construct(array $states = array())
     {
         $this->states = $states;
+        foreach ($states as $transactionId => $state) {
+            $this->orderContexts[$transactionId] = array('amount' => '100.00', 'currency' => 'USD');
+        }
     }
 
     public function markPaid($transactionId)
     {
+        if ($this->failBeforePayment) {
+            $this->failBeforePayment = false;
+            throw new RuntimeException('Failure before CMS payment');
+        }
         // Shopware: open/in_progress -> paid is legal; paid -> paid is an
         // UnnecessaryTransition the state handler swallows as a no-op; from any
         // other terminal state (cancelled/failed) -> paid throws.
@@ -331,6 +340,10 @@ final class FakeShopwareGateway implements PaymosPayments\Service\ShopwareGatewa
         $this->assertTransitionAllowed($current, 'paid', array('open', 'in_progress'));
         $this->record('paid', $transactionId);
         $this->states[(string) $transactionId] = 'paid';
+        if ($this->failAfterPayment) {
+            $this->failAfterPayment = false;
+            throw new RuntimeException('Failure after CMS payment');
+        }
     }
 
     public function markCancelled($transactionId)

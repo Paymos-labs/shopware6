@@ -36,6 +36,15 @@ function sw_mapper_event($type, $status, array $orderOverrides = array())
     ));
 }
 
+function test_sw_mapper_changed_transaction_total_cannot_be_paid_by_old_invoice()
+{
+    $gateway = new FakeShopwareGateway(array('txn_1' => 'in_progress'));
+    $gateway->orderContexts['txn_1'] = array('amount' => '150.00', 'currency' => 'USD');
+    $paid = (new OrderMapper($gateway))->apply(sw_mapper_event('invoice.paid', 'paid'), sw_mapper_row(), false);
+    assertFalseValue($paid, 'Current transaction total must match the stored invoice.');
+    assertSameValue(0, count($gateway->transitions), 'Changed order cannot be marked paid.');
+}
+
 function test_sw_mapper_marks_paid_on_invoice_paid()
 {
     $gateway = new FakeShopwareGateway(array('txn_1' => 'in_progress'));
@@ -173,4 +182,13 @@ function test_sw_mapper_ignores_unknown_event()
 
     assertFalseValue($paid, 'Unknown event is not a completion.');
     assertSameValue(0, count($gateway->transitions), 'Unknown event leaves the transaction unchanged.');
+}
+
+function test_sw_mapper_missing_current_total_cannot_complete_paid_invoice()
+{
+    $gateway = new FakeShopwareGateway(array('txn_1' => 'open'));
+    $gateway->orderContexts['txn_1'] = array('amount' => '', 'currency' => 'USD');
+    $paid = (new OrderMapper($gateway))->apply(sw_mapper_event('invoice.paid', 'paid'), sw_mapper_row(), false);
+    assertFalseValue($paid, 'An unavailable current total must hold for review.');
+    assertSameValue(0, count($gateway->transitions), 'The transaction must remain unpaid.');
 }
