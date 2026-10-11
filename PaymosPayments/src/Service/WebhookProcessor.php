@@ -176,12 +176,33 @@ final class WebhookProcessor
         // for a transaction Shopware closed while the invoice was still open,
         // wrong for a stale event on an invoice that already ended. The recorded
         // invoice status decides, and it stays final.
+
+        // invoice-late-payment: money crossed the invoice's total AFTER it closed. Shopware 6 core has
+        // no native per-order note API (the state machine is the only supported write surface, and a
+        // note must NOT touch it) — the late fact lands in the gateway log plus a per-invoice marker
+        // in the row store, before the stale-after-final guard above (a late event arrives after a
+        // terminal status by definition). No transition, no reopen, no payment action.
+        if (StatusMapper::invoiceAction($event->type(), $event->status()) === StatusMapper::ACTION_NOTE_PAID_LATE) {
+            if (!empty($row['paid_late_noted'])) {
+                if ($config->debugLogging()) {
+                    $this->gateway->log('Paymos paid-late note already recorded. Invoice: ' . $event->invoiceId());
+                }
+                return false;
+            }
+
+            $this->gateway->log('Paymos: payment arrived after the invoice deadline and covered the full amount. Invoice: ' . $event->invoiceId());
+            $row['paid_late_noted'] = $event->id() !== '' ? $event->id() : '1';
+            $this->invoiceStore->save($row);
+            return false;
+        }
+
         if (StatusMapper::isFinalStatus(isset($row['status']) ? (string) $row['status'] : '')) {
             if ($config->debugLogging()) {
                 $this->gateway->log('Paymos ignored an invoice status that arrived after a final one. Invoice: ' . $event->invoiceId());
             }
             return false;
         }
+
 
         $applied = (new OrderMapper($this->gateway))->apply($event, $row, $config->debugLogging());
         $this->invoiceStore->updateStatus($event->invoiceId(), $event->status());
