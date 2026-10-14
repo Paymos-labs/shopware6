@@ -190,7 +190,7 @@ final class WebhookProcessor
                 return false;
             }
 
-            $this->gateway->log('Paymos: payment arrived after the invoice deadline and covered the full amount. Invoice: ' . $event->invoiceId());
+            $this->gateway->log('Paymos: the customer finished paying for this order after the invoice closed. Check stock, then fulfil the order manually or refund the payment. Invoice: ' . $event->invoiceId());
             $row['paid_late_noted'] = $event->id() !== '' ? $event->id() : '1';
             $this->invoiceStore->save($row);
             return false;

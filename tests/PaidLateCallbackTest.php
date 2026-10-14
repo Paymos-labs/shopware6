@@ -35,7 +35,7 @@ function test_sw_paid_late_never_transitions_and_logs_once()
     assertSameValue('cancelled', $gateway->states['txn_1'], 'the transaction state stays as it was.');
     $noted = 0;
     foreach ($gateway->logs as $log) {
-        if (strpos($log['message'], 'arrived after the invoice deadline') !== false) {
+        if (strpos($log['message'], 'finished paying for this order after the invoice closed') !== false) {
             $noted++;
         }
     }
@@ -64,7 +64,7 @@ function test_sw_paid_late_sequential_duplicate_is_silent()
     assertSameValue(0, count($gateway->transitions), 'duplicates never transition.');
     $noted = 0;
     foreach ($gateway->logs as $log) {
-        if (strpos($log['message'], 'arrived after the invoice deadline') !== false) {
+        if (strpos($log['message'], 'finished paying for this order after the invoice closed') !== false) {
             $noted++;
         }
     }

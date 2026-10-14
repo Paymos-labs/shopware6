@@ -61,6 +61,10 @@ final class PaymosInvoiceStore implements InvoiceStoreInterface
             'renew_count' => isset($row['renew_count']) ? (int) $row['renew_count'] : 0,
             'updated_at' => $now,
         );
+        // Written only by the callback that set it; other saves leave the marker alone.
+        if (array_key_exists('paid_late_noted', $row)) {
+            $data['paid_late_noted'] = $row['paid_late_noted'] === null ? null : (string) $row['paid_late_noted'];
+        }
 
         $existing = $this->findByExternalOrderId($data['external_order_id']);
         if (is_array($existing)) {
