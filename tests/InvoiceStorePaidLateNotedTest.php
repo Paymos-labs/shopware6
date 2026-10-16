@@ -72,7 +72,7 @@ function paymos_shopware_store_row(array $extra = array())
     );
 }
 
-function test_shopware_migration_adds_the_paid_late_column_once()
+function test_sw_migration_adds_the_paid_late_column_once()
 {
     $old = new FakeShopwareStoreConnection();
     (new Migration1781784200AddPaidLateNoted())->update($old);
@@ -85,7 +85,7 @@ function test_shopware_migration_adds_the_paid_late_column_once()
     assertSameValue(array(), $current->statements, 'a table that has the column is not altered again.');
 }
 
-function test_shopware_store_persists_the_paid_late_marker()
+function test_sw_store_persists_the_paid_late_marker()
 {
     $connection = new FakeShopwareStoreConnection();
     $connection->existing = paymos_shopware_store_row();

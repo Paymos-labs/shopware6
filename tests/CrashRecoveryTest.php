@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-function test_shopware_paid_recovers_before_and_after_cms_commit()
+function test_sw_paid_recovers_before_and_after_cms_commit()
 {
     sw_write_generated_config();
     foreach (array('failBeforePayment', 'failAfterPayment') as $fault) {
@@ -9,7 +9,7 @@ function test_shopware_paid_recovers_before_and_after_cms_commit()
         $gateway = new FakeShopwareGateway(array('txn_1' => 'in_progress'));
         $gateway->$fault = true;
         $processor = new PaymosPayments\Service\WebhookProcessor($gateway, $store,
-            new Paymos\Webhook\InMemoryEventStore(), static function () { return sw_reverse_client(); });
+            new PaymosPayments\Service\EventStore(new FakeDbalConnection()), static function () { return sw_reverse_client(); });
         $body = json_encode(sw_invoice_event('evt_crash_' . $fault, 'invoice.paid', 'paid'));
         $sig = sw_signed_header('whsec_sandbox', $body, 1709000000);
         $first = $processor->handle($body, $sig, sw_settings(), 1709000000);
