@@ -67,6 +67,7 @@ function test_sw_webhook_reverse_verify_accepts_server_trimmed_amount()
                 'invoice_id' => 'inv_123',
                 'project_id' => 'prj_123',
                 'status' => 'paid',
+                'is_test' => true,
                 'order' => array(
                     'external_id' => '10001_0',
                     'amount' => '100', // trimmed
@@ -137,11 +138,8 @@ function test_sw_webhook_amount_mismatch_holds_for_manual_review()
     $gateway = new FakeShopwareGateway(array('txn_1' => 'in_progress'));
     $store = sw_seeded_store(array('amount' => '100.00'));
 
-    // The webhook payload's order amount disagrees with the snapshot; the
-    // signature is valid and reverse-verify passes, but the AmountGuard catches the
-    // drift. This is NOT transient — the figures won't change on redelivery — so the
-    // webhook must be acknowledged (200) and the order held, never 400'd into an
-    // endless retry loop.
+    // The signed payload contradicts both the saved invoice and fresh API proof.
+    // It must fail reverse verification before any order transition or ACK.
     $processor = new WebhookProcessor($gateway, $store, new InMemoryEventStore(), static function () {
         return sw_reverse_client();
     });
@@ -152,8 +150,22 @@ function test_sw_webhook_amount_mismatch_holds_for_manual_review()
     $body = json_encode($event);
     $result = $processor->handle($body, sw_signed_header('whsec_sandbox', $body, 1709000000), sw_settings(), 1709000000);
 
-    assertSameValue(200, $result->statusCode(), 'An amount mismatch must acknowledge the webhook (200), not retry forever.');
+    assertSameValue(400, $result->statusCode(), 'A contradictory signed amount must fail reverse verification.');
     assertSameValue('in_progress', $gateway->states['txn_1'], 'A mismatch must not mark the order paid.');
+}
+
+function test_sw_verified_paid_invoice_with_changed_local_total_holds_for_manual_review()
+{
+    sw_write_generated_config();
+    $gateway = new FakeShopwareGateway(array('txn_1' => 'in_progress'));
+    $gateway->orderContexts['txn_1'] = array('amount' => '120.00', 'currency' => 'USD');
+    $processor = new WebhookProcessor($gateway, sw_seeded_store(), new InMemoryEventStore(), static function () {
+        return sw_reverse_client();
+    });
+    $body = json_encode(sw_invoice_event('evt_local_total_changed', 'invoice.paid', 'paid'));
+    $result = $processor->handle($body, sw_signed_header('whsec_sandbox', $body, 1709000000), sw_settings(), 1709000000);
+    assertSameValue(200, $result->statusCode(), 'A verified invoice with local total drift is held for review.');
+    assertSameValue('in_progress', $gateway->states['txn_1'], 'A payment of 100 cannot complete a local order of 120.');
 }
 
 function test_sw_webhook_does_not_roll_back_paid_order_on_late_cancel()
@@ -174,6 +186,7 @@ function test_sw_webhook_does_not_roll_back_paid_order_on_late_cancel()
                 'invoice_id' => 'inv_123',
                 'project_id' => 'prj_123',
                 'status' => 'cancelled',
+                'is_test' => true,
                 'order' => array('external_id' => '10001_0', 'amount' => '100', 'currency' => 'USD'),
             ));
         }

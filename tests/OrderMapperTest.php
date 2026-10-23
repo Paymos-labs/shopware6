@@ -27,6 +27,7 @@ function sw_mapper_event($type, $status, array $orderOverrides = array())
             'invoice_id' => 'inv_123',
             'project_id' => 'prj_123',
             'status' => $status,
+            'is_test' => true,
             'order' => array(
                 'external_id' => '10001_0',
                 'amount' => '100.00',
