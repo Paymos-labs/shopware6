@@ -53,6 +53,7 @@ function test_sw_reconcile_marks_paid_for_open_invoice_now_paid()
             'invoice_id' => 'inv_123',
             'project_id' => 'prj_123',
             'status' => 'paid',
+            'is_test' => true,
             'order' => array('external_id' => '10001_0', 'amount' => '100', 'currency' => 'USD'),
         ));
     });
@@ -79,6 +80,7 @@ function test_sw_reconcile_skips_invoice_inside_grace_window()
             'invoice_id' => 'inv_123',
             'project_id' => 'prj_123',
             'status' => 'paid',
+            'is_test' => true,
             'order' => array('external_id' => '10001_0', 'amount' => '100', 'currency' => 'USD'),
         ));
     });
@@ -103,6 +105,7 @@ function test_sw_reconcile_does_not_roll_back_a_paid_transaction()
             'invoice_id' => 'inv_123',
             'project_id' => 'prj_123',
             'status' => 'cancelled',
+            'is_test' => true,
             'order' => array('external_id' => '10001_0', 'amount' => '100', 'currency' => 'USD'),
         ));
     });

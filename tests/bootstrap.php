@@ -280,6 +280,7 @@ function sw_reverse_client(array $invoiceResponse = array(), $timestamp = 170900
         'invoice_id' => 'inv_123',
         'project_id' => 'prj_123',
         'status' => 'paid',
+        'is_test' => true,
         'order' => array(
             'external_id' => '10001_0',
             // Server trims trailing zeros; snapshot is "100.00". Equal.
