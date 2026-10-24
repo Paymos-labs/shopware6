@@ -140,6 +140,12 @@ final class FakeDbalConnection extends \Doctrine\DBAL\Connection
         if ($id === '' || !isset($this->rows[$id])) {
             return 0;
         }
+        // The owner-token fence (A10-02): a conditional update/delete only
+        // touches the row when the caller's token is the one in it.
+        if (array_key_exists('owner_token', $criteria)
+            && (string) ($this->rows[$id]['owner_token'] ?? '') !== (string) $criteria['owner_token']) {
+            return 0;
+        }
         $this->rows[$id] = array_merge($this->rows[$id], $data);
 
         return 1;
@@ -152,6 +158,10 @@ final class FakeDbalConnection extends \Doctrine\DBAL\Connection
     {
         $id = isset($criteria['event_id']) ? (string) $criteria['event_id'] : '';
         if ($id === '' || !isset($this->rows[$id])) {
+            return 0;
+        }
+        if (array_key_exists('owner_token', $criteria)
+            && (string) ($this->rows[$id]['owner_token'] ?? '') !== (string) $criteria['owner_token']) {
             return 0;
         }
         unset($this->rows[$id]);

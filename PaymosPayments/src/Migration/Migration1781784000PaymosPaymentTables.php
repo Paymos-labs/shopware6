@@ -56,6 +56,7 @@ class Migration1781784000PaymosPaymentTables extends MigrationStep
         $connection->executeStatement(
             'CREATE TABLE IF NOT EXISTS `paymos_payment_event` (
                 `event_id` VARCHAR(128) NOT NULL,
+                `owner_token` CHAR(32) NOT NULL DEFAULT \'\',
                 `expires_at` INT(11) UNSIGNED NOT NULL,
                 `created_at` INT(11) UNSIGNED NOT NULL,
                 PRIMARY KEY (`event_id`),
