@@ -36,6 +36,17 @@ final class EventStore implements CommitAwareEventStoreInterface
     /** @var string */
     private $pendingEventId = '';
 
+    /**
+     * Owner token of the reservation remember() took (A10-02). Each successful
+     * remember() mints a fresh random token; commit()/release() match it in
+     * their WHERE clause, so a delivery whose reservation expired (and whose
+     * event id was taken over by a newer delivery) can no longer delete or
+     * commit the successor's row.
+     *
+     * @var string
+     */
+    private $pendingOwnerToken = '';
+
     /** @var int */
     private $pendingTtlSeconds = 0;
 
@@ -70,9 +81,12 @@ final class EventStore implements CommitAwareEventStoreInterface
         // callback that is killed (fatal/OOM) between remember() and release()
         // frees the event id within RESERVATION_TTL_SECONDS instead of
         // blacklisting the server's retry for the entire dedup window.
+        $ownerToken = bin2hex(random_bytes(16));
+
         try {
             $this->connection->insert('paymos_payment_event', array(
                 'event_id' => $eventId,
+                'owner_token' => $ownerToken,
                 'expires_at' => $now + self::RESERVATION_TTL_SECONDS,
                 'created_at' => $now,
             ));
@@ -82,6 +96,7 @@ final class EventStore implements CommitAwareEventStoreInterface
         }
 
         $this->pendingEventId = $eventId;
+        $this->pendingOwnerToken = $ownerToken;
         $this->pendingTtlSeconds = (int) $ttlSeconds;
 
         return true;
@@ -120,30 +135,53 @@ final class EventStore implements CommitAwareEventStoreInterface
         return $expiresAt > time() && $expiresAt > $createdAt + self::RESERVATION_TTL_SECONDS;
     }
 
+    /**
+     * Extend the reservation to the full dedup window — but only if this store
+     * instance still owns it. Zero affected rows mean a newer delivery took the
+     * event id over after this reservation expired (A10-02): that successor's
+     * row must stay untouched, and the commit is reported as not owned (false),
+     * not as an error.
+     *
+     * @return bool True when this owner's row was extended; false when nothing
+     *              was pending or the reservation was lost to a successor.
+     */
     public function commit()
     {
         if ($this->pendingEventId === '') {
-            return;
+            return false;
         }
 
         // Extend the reservation to the full dedup window now the order
         // mutation has succeeded, so a re-delivery of this event is suppressed
         // for the whole window.
         try {
-            $this->connection->update(
+            $affected = $this->connection->update(
                 'paymos_payment_event',
                 array('expires_at' => time() + $this->pendingTtlSeconds),
-                array('event_id' => $this->pendingEventId)
+                array(
+                    'event_id' => $this->pendingEventId,
+                    'owner_token' => $this->pendingOwnerToken,
+                )
             );
         } catch (\Throwable $e) {
             // Best effort: if the extend fails the row still expires via the
             // reservation TTL and the server's retry would re-process it.
+            $affected = 0;
         }
 
         $this->pendingEventId = '';
+        $this->pendingOwnerToken = '';
         $this->pendingTtlSeconds = 0;
+
+        return (int) $affected > 0;
     }
 
+    /**
+     * Drop the in-flight lock so the server can retry a failed processing run.
+     * Only this owner's row is deleted: when the reservation expired and a
+     * newer delivery owns the event id now, release() completes silently and
+     * leaves the successor's row alone (A10-02).
+     */
     public function release()
     {
         if ($this->pendingEventId === '') {
@@ -151,13 +189,17 @@ final class EventStore implements CommitAwareEventStoreInterface
         }
 
         try {
-            $this->connection->delete('paymos_payment_event', array('event_id' => $this->pendingEventId));
+            $this->connection->delete('paymos_payment_event', array(
+                'event_id' => $this->pendingEventId,
+                'owner_token' => $this->pendingOwnerToken,
+            ));
         } catch (\Throwable $e) {
             // Best effort: if the delete fails the row simply expires via the
             // reservation TTL.
         }
 
         $this->pendingEventId = '';
+        $this->pendingOwnerToken = '';
         $this->pendingTtlSeconds = 0;
     }
 }
