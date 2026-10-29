@@ -8,6 +8,7 @@ use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Payment\Cart\PaymentHandler\AbstractPaymentHandler;
 use Shopware\Core\Checkout\Payment\Cart\PaymentHandler\PaymentHandlerType;
 use Shopware\Core\Checkout\Payment\Cart\PaymentTransactionStruct;
+use Shopware\Core\Checkout\Payment\Cart\RefundPaymentTransactionStruct;
 use Shopware\Core\Checkout\Payment\PaymentException;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\Struct\Struct;
@@ -48,29 +49,33 @@ final class PaymosPaymentHandler67 extends AbstractPaymentHandler
 
     /** @var CredentialStore */
     private $credentialStore;
+    private $refundAdapter;
 
     public function __construct(
         CheckoutProcessor $checkoutProcessor,
         ShopwareGatewayInterface $gateway,
         SystemConfigService $systemConfig,
         LoggerInterface $logger,
-        CredentialStore $credentialStore
+        CredentialStore $credentialStore,
+        ?RefundAdapter $refundAdapter = null
     ) {
         $this->checkoutProcessor = $checkoutProcessor;
         $this->gateway = $gateway;
         $this->systemConfig = $systemConfig;
         $this->logger = $logger;
         $this->credentialStore = $credentialStore;
+        $this->refundAdapter = $refundAdapter;
     }
 
-    /**
-     * Stablecoin payments settle on-chain and cannot be reversed programmatically —
-     * Paymos exposes no refund API — and there is no recurring support, so every
-     * optional capability is declined rather than silently half-implemented.
-     */
     public function supports(PaymentHandlerType $type, string $paymentMethodId, Context $context): bool
     {
-        return false;
+        return $type === PaymentHandlerType::REFUND && $this->refundAdapter !== null && $this->refundAdapter->supports();
+    }
+
+    public function refund(RefundPaymentTransactionStruct $transaction, Context $context): void
+    {
+        if ($this->refundAdapter === null) { throw new \RuntimeException('refund_adapter_unavailable'); }
+        $this->refundAdapter->nativeFull($transaction->getRefundId(), $context);
     }
 
     public function pay(

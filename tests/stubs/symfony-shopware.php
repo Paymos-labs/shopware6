@@ -78,6 +78,12 @@ namespace Shopware\Core\System\SalesChannel {
 }
 
 namespace Shopware\Core\Checkout\Payment\Cart\PaymentHandler {
+    if (!interface_exists(RefundPaymentHandlerInterface::class)) {
+        interface RefundPaymentHandlerInterface
+        {
+            public function refund(string $refundId, \Shopware\Core\Framework\Context $context): void;
+        }
+    }
     if (!class_exists(AbstractPaymentHandler::class)) {
         abstract class AbstractPaymentHandler
         {
@@ -209,6 +215,29 @@ namespace Shopware\Core\Framework {
     if (!class_exists(Context::class)) {
         class Context
         {
+            public const SKIP_TRIGGER_FLOW = 'skipTriggerFlow';
+            private $states = [];
+            public static function createDefaultContext() { return new self(); }
+            public function getVersionId() { return \Shopware\Core\Defaults::LIVE_VERSION; }
+            public function addState($state) { $this->states[$state] = true; }
+            public function hasState($state) { return isset($this->states[$state]); }
+        }
+    }
+}
+
+namespace Shopware\Core {
+    if (!class_exists(Defaults::class)) {
+        class Defaults { public const LIVE_VERSION = '0fa91ce3e96a4bc2be4bd9ce752c3425'; }
+    }
+}
+
+namespace Shopware\Core\Checkout\Payment\Cart {
+    if (!class_exists(RefundPaymentTransactionStruct::class)) {
+        class RefundPaymentTransactionStruct
+        {
+            private $refundId;
+            public function __construct(string $refundId) { $this->refundId = $refundId; }
+            public function getRefundId(): string { return $this->refundId; }
         }
     }
 }
@@ -314,11 +343,19 @@ namespace Symfony\Component\HttpFoundation {
     if (!class_exists(JsonResponse::class)) {
         class JsonResponse
         {
+            private $data;
+            private $status;
+            public function __construct($data = null, $status = 200) { $this->data = $data; $this->status = $status; }
+            public function getData() { return $this->data; }
+            public function getStatusCode() { return $this->status; }
         }
     }
     if (!class_exists(Request::class)) {
         class Request
         {
+            private $body;
+            public function __construct($body = '') { $this->body = $body; }
+            public function getContent() { return $this->body; }
         }
     }
     if (!class_exists(RedirectResponse::class)) {

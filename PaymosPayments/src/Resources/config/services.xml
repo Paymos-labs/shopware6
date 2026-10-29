@@ -4,6 +4,32 @@
            xsi:schemaLocation="http://symfony.com/schema/dic/services http://symfony.com/schema/dic/services/services-1.0.xsd">
 
     <services>
+        <service id="PaymosPayments\Service\RefundWriteScope"/>
+        <service id="PaymosPayments\Service\NativeRefundGuard">
+            <argument type="service" id="Doctrine\DBAL\Connection"/>
+            <argument type="service" id="PaymosPayments\Service\RefundWriteScope"/>
+            <tag name="kernel.event_listener" event="Shopware\Core\Framework\DataAbstractionLayer\Write\Validation\PreWriteValidationEvent" method="beforeWrite"/>
+        </service>
+        <service id="PaymosPayments\Service\RefundIntentStore">
+            <argument type="service" id="Doctrine\DBAL\Connection"/>
+        </service>
+        <service id="PaymosPayments\Service\ShopwareRefundGateway">
+            <argument type="service" id="Doctrine\DBAL\Connection"/>
+            <argument type="service" id="order_transaction_capture.repository"/>
+            <argument type="service" id="order_transaction_capture_refund.repository"/>
+            <argument type="service" id="Shopware\Core\Checkout\Order\Aggregate\OrderTransactionCaptureRefund\OrderTransactionCaptureRefundStateHandler"/>
+            <argument type="service" id="Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStateHandler"/>
+            <argument type="service" id="PaymosPayments\Service\RefundWriteScope"/>
+        </service>
+        <service id="PaymosPayments\Service\RefundAdapter">
+            <argument type="service" id="PaymosPayments\Service\RefundIntentStore"/>
+            <argument type="service" id="PaymosPayments\Service\ShopwareRefundGateway"/>
+            <argument type="service" id="PaymosPayments\Service\CredentialStore"/>
+        </service>
+        <service id="PaymosPayments\Api\Controller\RefundController" public="true">
+            <argument type="service" id="PaymosPayments\Service\RefundAdapter"/>
+            <call method="setContainer"><argument type="service" id="service_container"/></call>
+        </service>
         <service id="PaymosPayments\Service\CredentialStore">
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
             <argument>%kernel.secret%</argument>
@@ -35,6 +61,8 @@
             <argument type="service" id="PaymosPayments\Service\ShopwareGateway"/>
             <argument type="service" id="PaymosPayments\Service\PaymosInvoiceStore"/>
             <argument type="service" id="PaymosPayments\Service\EventStore"/>
+            <argument type="null"/>
+            <argument type="service" id="PaymosPayments\Service\RefundAdapter"/>
         </service>
 
         <!--
@@ -69,6 +97,7 @@
             <argument type="service" id="PaymosPayments\Service\ShopwareGateway"/>
             <argument type="service" id="PaymosPayments\Service\PaymosInvoiceStore"/>
             <argument type="service" id="PaymosPayments\Service\CredentialStore"/>
+            <argument type="service" id="PaymosPayments\Service\RefundAdapter"/>
             <tag name="console.command"/>
         </service>
 

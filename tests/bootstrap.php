@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 require __DIR__ . '/stubs/symfony-shopware.php';
+require __DIR__ . '/stubs/native-refund-guard.php';
 
 define('PAYMOS_SW_PLUGIN_DIR', dirname(__DIR__) . DIRECTORY_SEPARATOR);
 
