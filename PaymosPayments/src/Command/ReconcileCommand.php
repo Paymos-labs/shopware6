@@ -9,6 +9,7 @@ use PaymosPayments\Service\PaymosInvoiceStore;
 use PaymosPayments\Service\Reconciler;
 use PaymosPayments\Service\ShopwareGateway;
 use PaymosPayments\Service\CredentialStore;
+use PaymosPayments\Service\RefundAdapter;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -38,13 +39,16 @@ final class ReconcileCommand extends Command
     /** @var PaymosInvoiceStore */
     private $invoiceStore;
     private $credentialStore;
+    private $refundAdapter;
 
-    public function __construct(ShopwareGateway $gateway, PaymosInvoiceStore $invoiceStore, CredentialStore $credentialStore)
+    public function __construct(ShopwareGateway $gateway, PaymosInvoiceStore $invoiceStore, CredentialStore $credentialStore,
+        ?RefundAdapter $refundAdapter = null)
     {
         parent::__construct();
         $this->gateway = $gateway;
         $this->invoiceStore = $invoiceStore;
         $this->credentialStore = $credentialStore;
+        $this->refundAdapter = $refundAdapter;
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -57,6 +61,7 @@ final class ReconcileCommand extends Command
         }
 
         $reconciled = (new Reconciler($this->gateway, $this->invoiceStore))->run($settings);
+        if ($this->refundAdapter !== null) { $this->refundAdapter->run(); }
         $output->writeln(sprintf('<info>Paymos reconcile complete. Orders updated to paid: %d.</info>', $reconciled));
 
         return Command::SUCCESS;

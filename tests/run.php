@@ -60,6 +60,8 @@ $testFiles = array(
     __DIR__ . '/ReturnBridgeResolverTest.php',
     __DIR__ . '/PaymentHandlerTest.php',
     __DIR__ . '/StorefrontReviewPageTest.php',
+    __DIR__ . '/RefundAdapterTest.php',
+    __DIR__ . '/NativeRefundGuardTest.php',
 );
 
 foreach ($testFiles as $file) {
@@ -81,3 +83,4 @@ foreach ($tests as $test) {
 
 sw_reset_test_state();
 echo "OK {$count} tests\n";
+require __DIR__ . '/refund-native.php';

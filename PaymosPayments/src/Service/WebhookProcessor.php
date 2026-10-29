@@ -43,17 +43,20 @@ final class WebhookProcessor
 
     /** @var callable|null */
     private $clientFactory;
+    private $refundAdapter;
 
     public function __construct(
         ShopwareGatewayInterface $gateway,
         InvoiceStoreInterface $invoiceStore,
         EventStoreInterface $eventStore,
-        ?callable $clientFactory = null
+        ?callable $clientFactory = null,
+        ?RefundAdapter $refundAdapter = null
     ) {
         $this->gateway = $gateway;
         $this->invoiceStore = $invoiceStore;
         $this->eventStore = $eventStore;
         $this->clientFactory = $clientFactory;
+        $this->refundAdapter = $refundAdapter;
     }
 
     /**
@@ -67,6 +70,12 @@ final class WebhookProcessor
                 ->process($signatureHeader, $rawBody, $now);
             $environment = $verified->environment();
             $event = $verified->event();
+
+            if (strpos($event->type(), 'withdrawal.') === 0 && $this->refundAdapter !== null) {
+                $this->refundAdapter->callback($event->toArray(), $environment);
+                $this->commitEvent();
+                return new CallbackResult(200, 'OK');
+            }
 
             if (!$event->isInvoiceEvent()) {
                 $this->commitEvent();

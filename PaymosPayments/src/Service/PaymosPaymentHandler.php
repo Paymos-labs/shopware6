@@ -8,6 +8,8 @@ use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Order\OrderEntity;
 use Shopware\Core\Checkout\Payment\Cart\AsyncPaymentTransactionStruct;
 use Shopware\Core\Checkout\Payment\Cart\PaymentHandler\AsynchronousPaymentHandlerInterface;
+use Shopware\Core\Checkout\Payment\Cart\PaymentHandler\RefundPaymentHandlerInterface;
+use Shopware\Core\Framework\Context;
 use Shopware\Core\Checkout\Payment\PaymentException;
 use Shopware\Core\Framework\Validation\DataBag\RequestDataBag;
 use Shopware\Core\System\SalesChannel\SalesChannelContext;
@@ -33,9 +35,9 @@ use Symfony\Component\HttpFoundation\Request;
  * or throwing the contract-mandated PaymentException on cancel/fail.
  *
  * Registered with the `shopware.payment.method.async` service tag (the 6.5/6.6
- * tag; 6.7's single `shopware.payment.method` is out of scope for this build).
+     * tag); the matching refund tag enables the native refund processor.
  */
-final class PaymosPaymentHandler implements AsynchronousPaymentHandlerInterface
+final class PaymosPaymentHandler implements AsynchronousPaymentHandlerInterface, RefundPaymentHandlerInterface
 {
     /** SystemConfigService key prefix for this plugin's admin settings. */
     private const CONFIG_DOMAIN = 'PaymosPayments.config.';
@@ -52,19 +54,28 @@ final class PaymosPaymentHandler implements AsynchronousPaymentHandlerInterface
     /** @var LoggerInterface */
     private $logger;
     private $credentialStore;
+    private $refundAdapter;
 
     public function __construct(
         CheckoutProcessor $checkoutProcessor,
         ShopwareGatewayInterface $gateway,
         SystemConfigService $systemConfig,
         LoggerInterface $logger,
-        CredentialStore $credentialStore
+        CredentialStore $credentialStore,
+        ?RefundAdapter $refundAdapter = null
     ) {
         $this->checkoutProcessor = $checkoutProcessor;
         $this->gateway = $gateway;
         $this->systemConfig = $systemConfig;
         $this->logger = $logger;
         $this->credentialStore = $credentialStore;
+        $this->refundAdapter = $refundAdapter;
+    }
+
+    public function refund(string $refundId, Context $context): void
+    {
+        if ($this->refundAdapter === null) { throw new \RuntimeException('refund_adapter_unavailable'); }
+        $this->refundAdapter->nativeFull($refundId, $context);
     }
 
     public function pay(

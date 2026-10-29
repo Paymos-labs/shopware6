@@ -32,11 +32,46 @@ Component.register('paymos-connect-page', {
                             {{ $tc('paymos.connect.blockedCode', 0, { code: manualCode }) }}
                         </p>
                     </sw-card>
+                    <sw-card title="TODO-COPY">
+                        <sw-text-field :value="refundPaymentKey" label="TODO-COPY" @update:value="refundPaymentKey = $event" @input="refundPaymentKey = $event" />
+                        <sw-button :disabled="busy || !refundPaymentKey" @click="refund('full')">TODO-COPY · full</sw-button>
+                        <sw-button :disabled="busy || !refundPaymentKey" @click="refund('overpayment')">TODO-COPY · overpayment</sw-button>
+                        <sw-button :disabled="busy || !refundPaymentKey" @click="refundStatus">TODO-COPY</sw-button>
+                        <pre v-if="refundResult">{{ refundResult }}</pre>
+                    </sw-card>
                 </sw-card-view>
             </template>
         </sw-page>`,
-    data() { return { busy: false, message: '', manualUrl: '', manualCode: '' }; },
+    data() { return { busy: false, message: '', manualUrl: '', manualCode: '', refundPaymentKey: '', refundResult: '' }; },
     methods: {
+        async refund(mode) {
+            this.busy = true;
+            const paymentKey = this.refundPaymentKey.trim();
+            const key = `paymos:refund:${paymentKey}:${mode}`;
+            try {
+                let token = window.localStorage.getItem(key);
+                if (!token) {
+                    const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+                    token = Array.from(bytes, (v) => v.toString(16).padStart(2, '0')).join('');
+                    window.localStorage.setItem(key, token);
+                }
+                const result = await this.request(`/_action/paymos/refund/${encodeURIComponent(paymentKey)}/${mode}`, { request_token: token });
+                this.refundResult = JSON.stringify(result, null, 2);
+                if (['failed', 'cancelled'].includes(result.cash_state)) { window.localStorage.removeItem(key); }
+            } catch (error) {
+                this.refundResult = `TODO-COPY ${error.response?.data?.error || error.message}`;
+            } finally { this.busy = false; }
+        },
+        async refundStatus() {
+            this.busy = true;
+            try {
+                const client = Shopware.Application.getContainer('init').httpClient;
+                const response = await client.get(`/_action/paymos/refund/${encodeURIComponent(this.refundPaymentKey.trim())}`);
+                this.refundResult = JSON.stringify(response.data, null, 2);
+            } catch (error) {
+                this.refundResult = `TODO-COPY ${error.response?.data?.error || error.message}`;
+            } finally { this.busy = false; }
+        },
         async request(path, body) {
             const client = Shopware.Application.getContainer('init').httpClient;
             const response = await client.post(path, body);
