@@ -26,8 +26,8 @@ sort($_files);
 
 // Constants the harness itself pre-defined may be re-defined by the plugin's
 // entry file (the platform loads that file FIRST in production). Tolerate
-// exactly those collisions; anything else — including a real duplicate between
-// two plugin files — still fails the run.
+// exactly those collisions; anything else вЂ” including a real duplicate between
+// two plugin files вЂ” still fails the run.
 $_predefined = get_defined_constants(true);
 $_predefined = isset($_predefined['user']) ? $_predefined['user'] : array();
 foreach ($_files as $_file) {
@@ -47,6 +47,7 @@ foreach ($_files as $_file) {
 unset($_srcRoot, $_iter, $_files, $_file, $_rel, $_f, $_predefined);
 
 $testFiles = array(
+    __DIR__ . '/ServiceConfigurationTest.php',
     __DIR__ . '/ConfigTest.php',
     __DIR__ . '/CheckoutProcessorTest.php',
     __DIR__ . '/OrderMapperTest.php',

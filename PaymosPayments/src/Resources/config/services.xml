@@ -61,7 +61,7 @@
             <argument type="service" id="PaymosPayments\Service\ShopwareGateway"/>
             <argument type="service" id="PaymosPayments\Service\PaymosInvoiceStore"/>
             <argument type="service" id="PaymosPayments\Service\EventStore"/>
-            <argument type="null"/>
+            <argument>null</argument>
             <argument type="service" id="PaymosPayments\Service\RefundAdapter"/>
         </service>
 
