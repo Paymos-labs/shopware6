@@ -115,6 +115,9 @@ final class RefundAdapter implements NativeRefundProjectorInterface
                     }
                     return $this->submit($nativeIntent);
                 }
+                if (ShopwareRefundGateway::isLegacySyntheticCapture($paymentKey, (string) ($draft['capture_id'] ?? ''))) {
+                    throw new \RuntimeException('refund_capture_unverified');
+                }
             }
             $intent = new RefundIntent(['operation_id' => RefundIntentStore::uuid(), 'request_token' => $token,
                 'installation_id' => $installation, 'platform' => 'shopware6', 'native_payment_key' => $paymentKey,
@@ -128,6 +131,10 @@ final class RefundAdapter implements NativeRefundProjectorInterface
 
     private function submit(RefundIntent $intent): array
     {
+        if ($this->hasLegacySyntheticCapture($intent)) {
+            $this->holdLegacySyntheticCapture($intent);
+            return $this->view($this->store->getIntent($intent->operationId()));
+        }
         $coordinator = $this->coordinator($intent);
         $scheduled = false;
         // Everything after submission must survive without failing core's refund processor.
@@ -147,6 +154,31 @@ final class RefundAdapter implements NativeRefundProjectorInterface
             $this->store->schedule($intent->operationId());
         }
         return $this->view($this->store->getIntent($intent->operationId()));
+    }
+
+    private function hasLegacySyntheticCapture(RefundIntent $intent): bool
+    {
+        if ($intent->mode() !== RefundStates::FULL) { return false; }
+        $draft = $intent->fullDraft();
+        return is_array($draft) && isset($draft['capture_id']) && is_string($draft['capture_id'])
+            && ShopwareRefundGateway::isLegacySyntheticCapture($intent->paymentKey(), $draft['capture_id']);
+    }
+
+    /** Preserve uncertain cash and historical native rows; a bound ID can only be verified by GET. */
+    private function holdLegacySyntheticCapture(RefundIntent $intent): string
+    {
+        $reason = $intent->toArray()['review_reason'] ?? null;
+        if (!is_string($reason) || $reason === '' || in_array($reason, ['cash_rewound', 'native_projection_unknown'], true)) {
+            $reason = 'refund_capture_unverified';
+        }
+        $this->store->recordState($intent->operationId(), $intent->cashState(), RefundStates::NATIVE_REVIEW, $reason);
+        $action = RefundStates::SHOW_REVIEW;
+        if ($intent->withdrawalId() !== null) {
+            $this->assertConnection($intent->projectId(), $intent->environment(), false);
+            $action = $this->coordinator($this->store->getIntent($intent->operationId()))->reconcile($intent->operationId());
+        }
+        $this->store->schedule($intent->operationId());
+        return $action;
     }
 
     public function preflight(RefundIntent $intent): ?string
@@ -200,6 +232,9 @@ final class RefundAdapter implements NativeRefundProjectorInterface
         $intent = $this->store->getIntent($operationId);
         return $this->store->withPaymentLock($intent->paymentKey(), function () use ($operationId) {
             $intent = $this->store->getIntent($operationId);
+            if ($this->hasLegacySyntheticCapture($intent)) {
+                return $this->holdLegacySyntheticCapture($intent);
+            }
             if ($intent->withdrawalId() === null && $intent->cashState() === RefundStates::UNKNOWN) {
                 $this->assertConnection($intent->projectId(), $intent->environment(), false);
             }
