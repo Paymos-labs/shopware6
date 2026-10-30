@@ -34,6 +34,12 @@ final class ShopwareRefundGateway implements ShopwareRefundGatewayInterface
         $this->writes = $writes ?: new RefundWriteScope();
     }
 
+    /** The old plugin generated this completed capture without a native capture operation. */
+    public static function isLegacySyntheticCapture(string $paymentKey, string $captureId): bool
+    {
+        return $captureId === substr(hash('sha256', 'paymos-capture:' . $paymentKey), 0, 32);
+    }
+
     public function payment(string $paymentKey): array
     {
         $this->assertId($paymentKey);
@@ -126,13 +132,12 @@ final class ShopwareRefundGateway implements ShopwareRefundGatewayInterface
         if (count($captures) > 1) {
             throw new \RuntimeException('refund_capture_ambiguous');
         }
-        $captureId = count($captures) ? $captures[0]['id'] : substr(hash('sha256', 'paymos-capture:' . $paymentKey), 0, 32);
-        if (!count($captures)) {
-            $this->captures->create([['id' => $captureId, 'versionId' => Defaults::LIVE_VERSION,
-                'orderTransactionId' => $paymentKey, 'orderTransactionVersionId' => Defaults::LIVE_VERSION,
-                'stateId' => $this->stateId('order_transaction_capture.state', 'completed'),
-                'amount' => json_decode($payment['price'], true, 512, JSON_THROW_ON_ERROR),
-                'externalReference' => 'paymos:' . $payment['paymos_invoice_id']]], $context);
+        if (!$captures) {
+            throw new \RuntimeException('refund_capture_missing');
+        }
+        $captureId = $captures[0]['id'];
+        if (self::isLegacySyntheticCapture($paymentKey, $captureId)) {
+            throw new \RuntimeException('refund_capture_unverified');
         }
         $exists = $this->db->fetchOne('SELECT COUNT(*) FROM order_transaction_capture_refund WHERE id = UNHEX(?) AND version_id = UNHEX(?)',
             [$nativeId, Defaults::LIVE_VERSION]);

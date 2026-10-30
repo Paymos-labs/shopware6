@@ -27,6 +27,7 @@ class SwRefundNative implements ShopwareRefundGatewayInterface
     public $partial = false;
     public $crash = false;
     public $ambiguous = false;
+    public $capturePresent = true;
     public $row;
 
     public function __construct(SwRefundDb $db)
@@ -50,9 +51,9 @@ class SwRefundNative implements ShopwareRefundGatewayInterface
     }
     public function prepareFull(string $paymentKey, string $nativeId, array $invoice): array
     {
-        assertSameValue(1, $this->db->level, 'Capture/refund backfill uses native transaction');
-        assertSameValue('paid_over', $invoice['status'], 'Backfill receives fresh paid invoice');
-        $this->db->native['captures'] = 1;
+        assertSameValue(1, $this->db->level, 'Native refund draft uses a local transaction');
+        assertSameValue('paid_over', $invoice['status'], 'Draft receives fresh paid invoice');
+        if (!$this->capturePresent) { throw new RuntimeException('refund_capture_missing'); }
         return $this->refund($nativeId);
     }
     public function validate(RefundIntent $intent, bool $projected): ?string
@@ -521,4 +522,66 @@ function test_sw_refund_native_uuid_keeps_panel_intent_after_definitive_failure(
     assertSameValue($full['operation_id'], $nativeEntry['operation_id'], 'Core UUID finds existing panel operation');
     assertSameValue('failed', $nativeEntry['cash_state'], 'Old native UUID remains bound to old failed cash');
     assertSameValue($before, count($http->withdrawals), 'No new withdrawal from alternate entry');
+}
+
+function sw_legacy_intent_fixture(bool $bound): array
+{
+    list($db, $store, $native, $credentials, $http, $adapter) = sw_refunds();
+    $payment = $native->row['payment_key'];
+    $native->row['capture_id'] = substr(hash('sha256', 'paymos-capture:' . $payment), 0, 32);
+    $draft = array_intersect_key($native->row, array_flip(['native_id', 'capture_id', 'amount_minor', 'currency', 'price', 'refund_price', 'capture_price']));
+    $intent = $store->withPaymentLock($payment, static function () use ($store, $payment, $draft, $bound) {
+        $intent = new RefundIntent(['operation_id' => RefundIntentStore::uuid(), 'request_token' => 'request-legacy-0001',
+            'installation_id' => $store->installationId(), 'platform' => 'shopware6', 'native_payment_key' => $payment,
+            'invoice_id' => 'inv_123', 'project_id' => 'prj_123', 'environment' => 'sandbox', 'mode' => 'full', 'full_draft' => $draft]);
+        $store->createIntent($intent);
+        $store->recordState($intent->operationId(), $bound ? 'created' : 'unknown', 'pending', null);
+        if ($bound) { assertSameValue('bound', $store->bindWithdrawal($intent->operationId(), 'wdr_legacy'), 'Existing ID bound in fixture'); }
+        return $store->getIntent($intent->operationId());
+    });
+    if ($bound) {
+        $http->withdrawals['wdr_legacy'] = ['withdrawal_id' => 'wdr_legacy', 'invoice_id' => 'inv_123',
+            'mode' => 'full', 'external_order_id' => $intent->externalOrderId(), 'is_test' => true, 'project_id' => 'prj_123',
+            'currency' => 'USDT', 'network' => 'TRC20', 'first_sender' => 'sender-A', 'status' => 'completed', 'amount' => '120'];
+    }
+    return [$db, $store, $native, $http, $adapter, $intent];
+}
+
+function test_sw_legacy_synthetic_orphan_native_entry_does_not_post()
+{
+    list($db, $store, $native, $credentials, $http, $adapter) = sw_refunds();
+    $native->row['capture_id'] = substr(hash('sha256', 'paymos-capture:' . $native->row['payment_key']), 0, 32);
+    $before = $db->native;
+    sw_refund_throws(static function () use ($adapter) { $adapter->nativeFull(str_repeat('b', 32), Context::createDefaultContext()); }, 'refund_capture_unverified');
+    assertSameValue([], $http->requests, 'Orphan synthetic draft cannot initiate HTTP');
+    assertSameValue([], $store->forPayment($native->row['payment_key']), 'No new intent from orphan');
+    assertSameValue($before, $db->native, 'Existing native history remains untouched');
+}
+
+function test_sw_legacy_unknown_preserves_key_and_never_replays_post()
+{
+    list($db, $store, $native, $http, $adapter, $intent) = sw_legacy_intent_fixture(false);
+    $before = $db->native;
+    assertSameValue('show_review', $adapter->reconcile($intent->operationId()), 'Unbound legacy cash needs review');
+    $current = $store->getIntent($intent->operationId());
+    assertSameValue('unknown', $current->cashState(), 'Unknown cash state remains unknown');
+    assertSameValue($intent->externalOrderId(), $current->externalOrderId(), 'Original idempotency key remains');
+    assertSameValue('native_review', $current->projectionState(), 'Durable review recorded');
+    assertSameValue('refund_capture_unverified', $current->toArray()['review_reason'], 'Known legacy capture reason');
+    $adapter->full($native->row['payment_key'], 'request-legacy-0001');
+    assertSameValue([], $http->requests, 'Reconcile and retry make no POST or external request');
+    assertSameValue($before, $db->native, 'Unknown legacy operation does not change native state');
+}
+
+function test_sw_legacy_bound_get_never_projects_native_refund()
+{
+    list($db, $store, $native, $http, $adapter, $intent) = sw_legacy_intent_fixture(true);
+    $before = $db->native;
+    assertSameValue('show_review', $adapter->reconcile($intent->operationId()), 'Bound legacy cash remains review');
+    $current = $store->getIntent($intent->operationId());
+    assertSameValue('wdr_legacy', $current->withdrawalId(), 'Bound withdrawal is retained');
+    assertSameValue('completed', $current->cashState(), 'Fresh GET can record terminal cash');
+    assertSameValue('native_review', $current->projectionState(), 'Synthetic native projection remains held');
+    assertSameValue($before, $db->native, 'No native mutation on bound GET');
+    assertSameValue(['GET', 'GET'], array_column($http->requests, 'method'), 'Only independent refund and invoice GETs');
 }

@@ -327,6 +327,52 @@ function test_sw_native_guard_follows_explicit_versions_instead_of_live_rows()
     assertSameValue(1, $dal->writes, 'Other gateway in the referenced version is unaffected');
 }
 
+function test_sw_native_full_requires_existing_capture_before_any_write()
+{
+    list($db, $scope, $dal, $context) = sw_guard_fixture();
+    unset($db->entities['order_transaction_capture'], $db->entities['order_transaction_capture_refund']);
+    $db->paymentRow = ['payment_key' => str_repeat('a', 32), 'amount' => '100.00', 'decimals' => '2',
+        'currency' => 'USD', 'state' => 'paid', 'method' => 'paymos_crypto',
+        'handler_identifier' => PaymosPaymentHandler::class,
+        'paymos_invoice_id' => 'inv_123', 'project_id' => 'prj_123', 'environment' => 'sandbox',
+        'invoice_amount' => '100', 'invoice_currency' => 'USD', 'invoice_status' => 'paid',
+        'external_order_id' => '10001_0', 'price' => '{"totalPrice":100}'];
+    $gateway = new ShopwareRefundGateway($db, new SwGuardRepository($dal, 'order_transaction_capture'),
+        new SwGuardRepository($dal, 'order_transaction_capture_refund'), new SwGuardRefundStates($dal),
+        new SwGuardPaymentStates($dal), $scope);
+    $before = $db->entities;
+    sw_refund_throws(static function () use ($gateway) {
+        $gateway->prepareFull(str_repeat('a', 32), str_repeat('b', 32), [
+            'invoice_id' => 'inv_123', 'project_id' => 'prj_123', 'is_test' => true, 'status' => 'paid',
+            'order' => ['external_id' => '10001_0', 'amount' => '100', 'currency' => 'USD']]);
+    }, 'refund_capture_missing');
+    assertSameValue($before, $db->entities, 'Missing capture leaves native history unchanged');
+    assertSameValue(0, $dal->writes, 'Missing capture refuses before native write');
+}
+
+function test_sw_native_full_rejects_known_legacy_capture_before_new_write()
+{
+    list($db, $scope, $dal, $context) = sw_guard_fixture();
+    $payment = str_repeat('a', 32);
+    $legacy = substr(hash('sha256', 'paymos-capture:' . $payment), 0, 32);
+    $db->captures = [['id' => $legacy]];
+    $db->paymentRow = ['payment_key' => $payment, 'amount' => '100.00', 'decimals' => '2',
+        'currency' => 'USD', 'state' => 'paid', 'method' => 'paymos_crypto', 'handler_identifier' => PaymosPaymentHandler::class,
+        'paymos_invoice_id' => 'inv_123', 'project_id' => 'prj_123', 'environment' => 'sandbox',
+        'invoice_amount' => '100', 'invoice_currency' => 'USD', 'invoice_status' => 'paid',
+        'external_order_id' => '10001_0', 'price' => '{"totalPrice":100}'];
+    $gateway = new ShopwareRefundGateway($db, new SwGuardRepository($dal, 'order_transaction_capture'),
+        new SwGuardRepository($dal, 'order_transaction_capture_refund'), new SwGuardRefundStates($dal),
+        new SwGuardPaymentStates($dal), $scope);
+    $before = $db->entities;
+    sw_refund_throws(static function () use ($gateway, $payment) {
+        $gateway->prepareFull($payment, str_repeat('f', 32), ['invoice_id' => 'inv_123', 'project_id' => 'prj_123',
+            'is_test' => true, 'status' => 'paid', 'order' => ['external_id' => '10001_0', 'amount' => '100', 'currency' => 'USD']]);
+    }, 'refund_capture_unverified');
+    assertSameValue($before, $db->entities, 'Legacy synthetic history is retained unchanged');
+    assertSameValue(0, $dal->writes, 'Known synthetic capture cannot create a new draft');
+}
+
 function sw_guard_gateway_roundtrip($handlerClass)
 {
     list($db, $scope, $dal, $context) = sw_guard_fixture($handlerClass);
@@ -342,10 +388,11 @@ function sw_guard_gateway_roundtrip($handlerClass)
     $gateway = new ShopwareRefundGateway($db, new SwGuardRepository($dal, 'order_transaction_capture'),
         new SwGuardRepository($dal, 'order_transaction_capture_refund'), $states, new SwGuardPaymentStates($dal), $scope);
     unset($db->entities['order_transaction_capture_refund']);
+    $db->captures = [['id' => str_repeat('c', 32)]]; // existing native capture, not created by the gateway
     $row = $gateway->prepareFull(str_repeat('a', 32), str_repeat('b', 32), [
         'invoice_id' => 'inv_123', 'project_id' => 'prj_123', 'is_test' => true, 'status' => 'paid',
         'order' => ['external_id' => '10001_0', 'amount' => '100', 'currency' => 'USD']]);
-    assertSameValue(2, $dal->writes, 'Adapter creates the capture and refund with the guard installed');
+    assertSameValue(1, $dal->writes, 'Adapter creates only the refund on an existing capture');
     $store = new \PaymosPayments\Service\RefundIntentStore($db, static function () {
         return new DateTimeImmutable('2026-10-28T00:00:00Z');
     });
