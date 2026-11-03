@@ -381,7 +381,21 @@ final class RefundAdapter implements NativeRefundProjectorInterface
                 || ($invoice['is_test'] ?? null) !== ($row['environment'] === 'sandbox')) {
                 throw new \RuntimeException('refund_summary_scope_conflict');
             }
-            return $invoice['refund_summary'] ?? [];
+            if (array_key_exists('refund_summary', $invoice)) {
+                return is_array($invoice['refund_summary']) ? $invoice['refund_summary'] : [];
+            }
+            $status = isset($invoice['status']) && is_string($invoice['status']) ? $invoice['status'] : '';
+            $payment = isset($invoice['payment']) && is_array($invoice['payment']) ? $invoice['payment'] : [];
+            $paid = in_array($status, ['paid', 'paid_over'], true);
+            $overpaid = $status === 'paid_over';
+            return [
+                'can_refund_full' => $paid,
+                'can_refund_overpayment' => $overpaid,
+                'full_refund_amount' => isset($payment['paid']) && is_string($payment['paid']) ? $payment['paid'] : ($paid ? (string) ($invoice['order']['amount'] ?? '0') : '0'),
+                'overpayment_refund_amount' => $overpaid && isset($payment['paid']) && is_string($payment['paid']) ? $payment['paid'] : '0',
+                'refund_asset' => isset($payment['currency'], $payment['network'])
+                    ? ['currency' => $payment['currency'], 'network' => $payment['network']] : null,
+            ];
         });
     }
 
