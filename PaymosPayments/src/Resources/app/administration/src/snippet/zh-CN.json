@@ -14,6 +14,14 @@
       "blocked": "浏览器拦截了批准页面的新标签页。",
       "blockedLink": "打开批准页面",
       "blockedCode": "代码：{code}"
+    },
+    "refund": {
+      "cardTitle": "Paymos 退款",
+      "paymentKeyLabel": "订单交易 ID",
+      "fullButton": "全额退款",
+      "overpaymentButton": "退还多付金额",
+      "statusButton": "查看状态",
+      "requestFailed": "退款请求失败：{error}"
     }
   }
 }

@@ -20,7 +20,15 @@ Credentials and temporary device state are stored as an AES-256-GCM SystemConfig
 
 ## Runtime
 
-The integration creates hosted-checkout invoices, verifies signed webhooks, deduplicates events, guards amount and currency, reverse-verifies terminal status, and reconciles missed webhook delivery.
+The integration creates hosted-checkout invoices, verifies signed webhooks, deduplicates events, guards amount and currency, reverse-verifies terminal status, and reconciles missed webhook delivery via `bin/console paymos:reconcile`.
+
+## Refunds
+
+Native refunds are supported through the Paymos Merchant API (`/v1/refunds`) in two modes: `full` (full paid invoice amount) and `overpayment` (excess received on an overpaid invoice). Funds return exclusively to the verified `first_sender` wallet address recorded by Paymos when the invoice was paid; no manual recipient wallet address is entered, and arbitrary partial refunds or unverified manual transaction refund transitions are blocked by the plugin's refund guard.
+
+In Shopware Administration, open **Settings → Plugins → Paymos**, enter the **Order transaction ID** in the **Paymos refunds** card, and use **Full refund** (`full`), **Refund overpayment** (`overpayment`), or **Check status**. The order transaction moves to `refunded` (for `full`) or records the overpayment refund note only after Paymos confirms `completed` via `POST /paymos/webhook`, **Check status**, or `bin/console paymos:reconcile`. Sandbox mode supports simulating terminal refund outcomes (`completed`, `failed`, `cancelled`).
+
+## Links
 
 - [Documentation](https://paymos.io/docs/cms-shopware6)
 - [Source](https://github.com/paymos-labs/shopware6)

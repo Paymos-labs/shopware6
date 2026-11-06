@@ -373,7 +373,7 @@ class RefundIntentStore implements RefundIntentStoreInterface
         $this->assertLock($intent->paymentKey());
         $this->db->insert($this->table('projection'), ['operation_id' => $intent->operationId(),
             'payment_key' => $intent->paymentKey(), 'result' => $this->encode($result->toArray()),
-            'note' => $intent->mode() === RefundStates::OVERPAYMENT ? 'TODO-COPY' : '']);
+            'note' => $intent->mode() === RefundStates::OVERPAYMENT ? 'Paymos overpayment refund' : '']);
     }
 
     public function marker(string $operationId): ?array
@@ -404,7 +404,7 @@ class RefundIntentStore implements RefundIntentStoreInterface
                     || !\Paymos\Plugin\RefundRecipientIdentity::same($pin, $refund)) { throw new \RuntimeException('refund_unbound_evidence_changed'); }
             }
             $data = ['payment_key' => $paymentKey, 'payload' => $this->encode($refund->toArray()),
-                'note' => $old['note'] ?? ($refund->mode() === 'overpayment' && $refund->status() === 'completed' ? 'TODO-COPY' : null),
+                'note' => $old['note'] ?? ($refund->mode() === 'overpayment' && $refund->status() === 'completed' ? 'Paymos overpayment refund' : null),
                 'review_reason' => $refund->mode() === 'full' ? 'refund_unbound_full_requires_draft' : null,
                 'next_due' => $this->now()->getTimestamp() + 86400];
             if (is_array($old)) { $this->db->update('paymos_refund_observation', $data, ['withdrawal_id' => $refund->withdrawalId()]); }

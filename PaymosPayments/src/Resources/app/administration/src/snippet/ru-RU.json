@@ -14,6 +14,14 @@
       "blocked": "Браузер заблокировал вкладку подтверждения.",
       "blockedLink": "Открыть страницу подтверждения",
       "blockedCode": "Код: {code}"
+    },
+    "refund": {
+      "cardTitle": "Возвраты Paymos",
+      "paymentKeyLabel": "ID транзакции заказа",
+      "fullButton": "Полный возврат",
+      "overpaymentButton": "Вернуть переплату",
+      "statusButton": "Проверить статус",
+      "requestFailed": "Не удалось выполнить запрос возврата: {error}"
     }
   }
 }

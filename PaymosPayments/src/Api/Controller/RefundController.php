@@ -33,7 +33,7 @@ final class RefundController extends AbstractController
                 : $this->adapter->overpayment($paymentKey, $body['request_token']);
             return new JsonResponse($result, 202);
         } catch (\Throwable $error) {
-            return new JsonResponse(['error' => $error->getMessage(), 'message' => 'TODO-COPY'], 409);
+            return new JsonResponse(['error' => $error->getMessage(), 'message' => 'Could not process the Paymos refund request.'], 409);
         }
     }
 
@@ -42,6 +42,6 @@ final class RefundController extends AbstractController
     {
         try { return new JsonResponse(['operations' => $this->adapter->operations($paymentKey),
             'observations' => $this->adapter->observations($paymentKey), 'summary' => $this->adapter->summary($paymentKey)]); }
-        catch (\Throwable $error) { return new JsonResponse(['error' => $error->getMessage(), 'message' => 'TODO-COPY'], 409); }
+        catch (\Throwable $error) { return new JsonResponse(['error' => $error->getMessage(), 'message' => 'Could not load Paymos refund status.'], 409); }
     }
 }

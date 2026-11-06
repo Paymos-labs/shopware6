@@ -14,6 +14,14 @@
       "blocked": "Tarayıcınız onay sekmesini engelledi.",
       "blockedLink": "Onay sayfasını aç",
       "blockedCode": "Kod: {code}"
+    },
+    "refund": {
+      "cardTitle": "Paymos iadeleri",
+      "paymentKeyLabel": "Sipariş işlem kimliği",
+      "fullButton": "Tam iade",
+      "overpaymentButton": "Fazla ödemeyi iade et",
+      "statusButton": "Durumu kontrol et",
+      "requestFailed": "İade isteği başarısız oldu: {error}"
     }
   }
 }

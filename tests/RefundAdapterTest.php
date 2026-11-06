@@ -433,12 +433,12 @@ function test_sw_refund_unbound_cash_observation_never_creates_provider_or_full_
     }, 'scope');
     assertSameValue($before, count($http->requests), 'Unbound foreign project does not enter HTTP');
     assertSameValue(1, count($db->tables['paymos_refund_observation']), 'One unbound cash note');
-    assertSameValue('TODO-COPY', $db->tables['paymos_refund_observation'][0]['note'], 'Overpayment note');
+    assertSameValue('Paymos overpayment refund', $db->tables['paymos_refund_observation'][0]['note'], 'Overpayment note');
     assertSameValue('paid', $db->native['state'], 'Unbound overpayment leaves payment paid');
     assertSameValue(['GET', 'GET', 'GET', 'GET'], array_column($http->requests, 'method'), 'No cash POST for unbound event');
     $http->withdrawals['wdr_external']['status'] = 'signed';
     $adapter->callback($payload, 'sandbox');
-    assertSameValue('TODO-COPY', $db->tables['paymos_refund_observation'][0]['note'], 'Reorg retains note history');
+    assertSameValue('Paymos overpayment refund', $db->tables['paymos_refund_observation'][0]['note'], 'Reorg retains note history');
     sw_refund_throws(static function () use ($adapter, $native) { $adapter->overpayment($native->row['payment_key'], 'request-over-0001'); }, 'unbound');
     $http->withdrawals['wdr_external']['mode'] = 'full';
     sw_refund_throws(static function () use ($adapter, $payload) { $adapter->callback($payload, 'sandbox'); }, 'changed');
@@ -584,4 +584,54 @@ function test_sw_legacy_bound_get_never_projects_native_refund()
     assertSameValue('native_review', $current->projectionState(), 'Synthetic native projection remains held');
     assertSameValue($before, $db->native, 'No native mutation on bound GET');
     assertSameValue(['GET', 'GET'], array_column($http->requests, 'method'), 'Only independent refund and invoice GETs');
+}
+
+function test_sw_admin_refund_snippets_and_no_placeholder_copy()
+{
+    $marker = 'TODO' . '-COPY';
+    $pluginDir = PAYMOS_SW_PLUGIN_DIR;
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($pluginDir, FilesystemIterator::SKIP_DOTS));
+    $scanned = 0;
+    foreach ($iterator as $file) {
+        if (!$file->isFile()) { continue; }
+        $scanned++;
+        $contents = (string) file_get_contents($file->getPathname());
+        assertFalseValue(strpos($contents, $marker) !== false, 'No placeholder copy in ' . $file->getPathname());
+    }
+    assertTrueValue($scanned > 10, 'Scanned Shopware plugin package files');
+
+    $snippetDir = PAYMOS_SW_SRC_DIR . 'Resources/app/administration/src/snippet/';
+    $locales = ['de-DE', 'en-GB', 'es-ES', 'ru-RU', 'tr-TR', 'zh-CN'];
+    $expectedKeys = ['cardTitle', 'paymentKeyLabel', 'fullButton', 'overpaymentButton', 'statusButton', 'requestFailed'];
+    foreach ($locales as $locale) {
+        $path = $snippetDir . $locale . '.json';
+        assertTrueValue(is_file($path), $locale . ': admin snippet file exists');
+        $decoded = json_decode((string) file_get_contents($path), true);
+        assertTrueValue(is_array($decoded) && isset($decoded['paymos']['refund']) && is_array($decoded['paymos']['refund']), $locale . ': paymos.refund object exists');
+        assertSameValue($expectedKeys, array_keys($decoded['paymos']['refund']), $locale . ': exact paymos.refund key parity');
+        foreach ($expectedKeys as $key) {
+            $val = $decoded['paymos']['refund'][$key] ?? '';
+            assertTrueValue(is_string($val) && trim($val) !== '', $locale . ': non-empty paymos.refund.' . $key);
+        }
+        assertContainsValue('{error}', $decoded['paymos']['refund']['requestFailed'], $locale . ': requestFailed contains {error} placeholder');
+    }
+
+    $mainJs = (string) file_get_contents(PAYMOS_SW_SRC_DIR . 'Resources/app/administration/src/main.js');
+    foreach ($expectedKeys as $key) {
+        assertContainsValue('paymos.refund.' . $key, $mainJs, 'main.js binds paymos.refund.' . $key);
+    }
+
+    list($db, $store, $native, $credentials, $http, $adapter) = sw_refunds();
+    $over = $adapter->overpayment($native->row['payment_key'], 'request-over-copy-0001');
+    assertSameValue('Paymos refund created', $over['message'], 'Adapter view renders state message');
+    $store->withPaymentLock($native->row['payment_key'], static function () use ($store, $over) {
+        $store->recordState($over['operation_id'], 'created', 'native_review', 'refund_unresolved_24h');
+    });
+    assertSameValue('Manual review required: refund_unresolved_24h', $adapter->view($store->getIntent($over['operation_id']))['message'], 'Adapter view renders review reason message');
+
+    $controller = new \PaymosPayments\Api\Controller\RefundController($adapter);
+    $badSubmit = $controller->submit($native->row['payment_key'], 'invalid', new \Symfony\Component\HttpFoundation\Request('{}'), Context::createDefaultContext());
+    assertSameValue('Could not process the Paymos refund request.', $badSubmit->getData()['message'], 'Submit 409 message');
+    $badStatus = $controller->status('missing-payment-key');
+    assertSameValue('Could not load Paymos refund status.', $badStatus->getData()['message'], 'Status 409 message');
 }
