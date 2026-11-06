@@ -14,6 +14,14 @@
       "blocked": "Ihr Browser hat den Bestätigungs-Tab blockiert.",
       "blockedLink": "Bestätigungsseite öffnen",
       "blockedCode": "Code: {code}"
+    },
+    "refund": {
+      "cardTitle": "Paymos-Rückerstattungen",
+      "paymentKeyLabel": "Bestelltransaktions-ID",
+      "fullButton": "Vollständige Rückerstattung",
+      "overpaymentButton": "Überzahlung erstatten",
+      "statusButton": "Status prüfen",
+      "requestFailed": "Rückerstattungsanfrage fehlgeschlagen: {error}"
     }
   }
 }

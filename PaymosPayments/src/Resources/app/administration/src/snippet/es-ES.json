@@ -14,6 +14,14 @@
       "blocked": "Tu navegador ha bloqueado la pestaña de aprobación.",
       "blockedLink": "Abrir la página de aprobación",
       "blockedCode": "Código: {code}"
+    },
+    "refund": {
+      "cardTitle": "Reembolsos de Paymos",
+      "paymentKeyLabel": "ID de transacción del pedido",
+      "fullButton": "Reembolso completo",
+      "overpaymentButton": "Reembolsar pago en exceso",
+      "statusButton": "Comprobar estado",
+      "requestFailed": "Error en la solicitud de reembolso: {error}"
     }
   }
 }

@@ -19,16 +19,16 @@ final class RefundWriteScope
     {
         // Object identity cannot be supplied by an API payload or a context state.
         $owned = clone $context;
-        $this->contexts->attach($owned);
+        $this->contexts->offsetSet($owned);
         try {
             return $write($owned);
         } finally {
-            $this->contexts->detach($owned);
+            $this->contexts->offsetUnset($owned);
         }
     }
 
     public function allows(Context $context): bool
     {
-        return $this->contexts->contains($context);
+        return $this->contexts->offsetExists($context);
     }
 }

@@ -405,7 +405,10 @@ final class RefundAdapter implements NativeRefundProjectorInterface
         return ['operation_id' => $intent->operationId(), 'mode' => $intent->mode(), 'cash_state' => $intent->cashState(),
             'projection_state' => $intent->projectionState(), 'withdrawal_id' => $intent->withdrawalId(),
             'observation' => $data['observation'], 'projection' => $data['projection'], 'effects' => $data['effects'],
-            'review_reason' => $data['review_reason'], 'message' => 'TODO-COPY'];
+            'review_reason' => $data['review_reason'],
+            'message' => is_string($data['review_reason']) && $data['review_reason'] !== ''
+                ? 'Manual review required: ' . $data['review_reason']
+                : 'Paymos refund ' . $intent->cashState()];
     }
 
     private function assertConnection(string $project, string $environment, bool $new): void

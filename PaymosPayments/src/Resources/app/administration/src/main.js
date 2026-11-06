@@ -32,11 +32,11 @@ Component.register('paymos-connect-page', {
                             {{ $tc('paymos.connect.blockedCode', 0, { code: manualCode }) }}
                         </p>
                     </sw-card>
-                    <sw-card title="TODO-COPY">
-                        <sw-text-field :value="refundPaymentKey" label="TODO-COPY" @update:value="refundPaymentKey = $event" @input="refundPaymentKey = $event" />
-                        <sw-button :disabled="busy || !refundPaymentKey" @click="refund('full')">TODO-COPY · full</sw-button>
-                        <sw-button :disabled="busy || !refundPaymentKey" @click="refund('overpayment')">TODO-COPY · overpayment</sw-button>
-                        <sw-button :disabled="busy || !refundPaymentKey" @click="refundStatus">TODO-COPY</sw-button>
+                    <sw-card :title="$tc('paymos.refund.cardTitle')">
+                        <sw-text-field :value="refundPaymentKey" :label="$tc('paymos.refund.paymentKeyLabel')" @update:value="refundPaymentKey = $event" @input="refundPaymentKey = $event" />
+                        <sw-button :disabled="busy || !refundPaymentKey" @click="refund('full')">{{ $tc('paymos.refund.fullButton') }}</sw-button>
+                        <sw-button :disabled="busy || !refundPaymentKey" @click="refund('overpayment')">{{ $tc('paymos.refund.overpaymentButton') }}</sw-button>
+                        <sw-button :disabled="busy || !refundPaymentKey" @click="refundStatus">{{ $tc('paymos.refund.statusButton') }}</sw-button>
                         <pre v-if="refundResult">{{ refundResult }}</pre>
                     </sw-card>
                 </sw-card-view>
@@ -59,7 +59,7 @@ Component.register('paymos-connect-page', {
                 this.refundResult = JSON.stringify(result, null, 2);
                 if (['failed', 'cancelled'].includes(result.cash_state)) { window.localStorage.removeItem(key); }
             } catch (error) {
-                this.refundResult = `TODO-COPY ${error.response?.data?.error || error.message}`;
+                this.refundResult = this.$tc('paymos.refund.requestFailed', 0, { error: error.response?.data?.error || error.message });
             } finally { this.busy = false; }
         },
         async refundStatus() {
@@ -69,7 +69,7 @@ Component.register('paymos-connect-page', {
                 const response = await client.get(`/_action/paymos/refund/${encodeURIComponent(this.refundPaymentKey.trim())}`);
                 this.refundResult = JSON.stringify(response.data, null, 2);
             } catch (error) {
-                this.refundResult = `TODO-COPY ${error.response?.data?.error || error.message}`;
+                this.refundResult = this.$tc('paymos.refund.requestFailed', 0, { error: error.response?.data?.error || error.message });
             } finally { this.busy = false; }
         },
         async request(path, body) {

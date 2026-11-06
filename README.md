@@ -132,8 +132,28 @@ ships a console command:
 bin/console paymos:reconcile
 ```
 
-It re-pulls the open invoices and re-applies them through the same guarded path the webhook uses.
-Run it from cron every few minutes on a live shop.
+It re-pulls open invoices and pending refunds and re-applies them through the same guarded paths the
+webhook uses. Run it from cron every few minutes on a live shop.
+
+## Refunds
+
+The plugin supports native refunds through the Paymos Merchant API (`/v1/refunds`) in two modes:
+
+- `full` — refunds the full paid invoice amount;
+- `overpayment` — refunds only the excess received on an `invoice.paid_over` transaction while
+  keeping the order paid.
+
+Funds return exclusively to the verified `first_sender` wallet address captured by Paymos when the
+invoice was paid. No manual recipient wallet address is entered, and arbitrary partial refunds or
+unverified manual refund state transitions on Paymos order transactions are blocked by the plugin's
+refund guard.
+
+In Shopware Administration, open **Settings → Plugins → Paymos**, enter the **Order transaction ID**
+in the **Paymos refunds** card, and use **Full refund** (`full`), **Refund overpayment**
+(`overpayment`), or **Check status**. Shopware moves the order transaction to `refunded` (for `full`)
+or records the overpayment refund note only after Paymos confirms `completed` via `POST
+/paymos/webhook`, **Check status**, or `bin/console paymos:reconcile`. In Sandbox mode, terminal
+refund outcomes (`completed`, `failed`, `cancelled`) can be simulated without moving funds.
 
 ## Upgrading Shopware
 
