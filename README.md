@@ -151,8 +151,10 @@ refund guard.
 In Shopware Administration, open **Settings → Plugins → Paymos**, enter the **Order transaction ID**
 in the **Paymos refunds** card, and use **Full refund** (`full`), **Refund overpayment**
 (`overpayment`), or **Check status**. Shopware moves the order transaction to `refunded` (for `full`)
-or records the overpayment refund note only after Paymos confirms `completed` via `POST
-/paymos/webhook`, **Check status**, or `bin/console paymos:reconcile`. In Sandbox mode, terminal
+or records the overpayment refund note only after Paymos confirms `completed` via
+`POST /paymos/webhook` or `bin/console paymos:reconcile`. Run the command from cron every few
+minutes to recover missed webhooks. **Check status** only shows the current state; it does not
+reconcile or apply refunds. In Sandbox mode, terminal
 refund outcomes (`completed`, `failed`, `cancelled`) can be simulated without moving funds.
 
 ## Upgrading Shopware

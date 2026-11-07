@@ -8,6 +8,11 @@ The public release history also lives at [paymos.io/changelog](https://paymos.io
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-11-07
+
+- docs(shopware6): refunds are applied by the webhook or paymos:reconcile, not by the status check
+- chore: rebuild canonical CMS package
+
 ## [1.7.2] - 2026-11-06
 
 - fix(shopware6): replace PHP 8.5 deprecated SplObjectStorage methods
