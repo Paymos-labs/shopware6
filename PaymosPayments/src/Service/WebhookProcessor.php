@@ -27,7 +27,7 @@ use Paymos\Webhook\WebhookEvent;
  *
  * HTTP-code contract the server's retry logic depends on:
  *   duplicate -> 200 (stop retrying); signature mismatch -> 401;
- *   timestamp skew -> 401; config error -> 500; anything else -> 400.
+ *   timestamp skew -> 401; config/storage/processing errors -> 500.
  * There is no 202.
  */
 final class WebhookProcessor
@@ -64,10 +64,12 @@ final class WebhookProcessor
      */
     public function handle($rawBody, $signatureHeader, array $settings, $now = null)
     {
+        $reserved = false;
         try {
             $config = Config::fromSettings($settings);
             $verified = (new MultiEnvironmentWebhookVerifier($config->webhookSecrets(), $this->eventStore))
                 ->process($signatureHeader, $rawBody, $now);
+            $reserved = true;
             $environment = $verified->environment();
             $event = $verified->event();
 
@@ -91,15 +93,18 @@ final class WebhookProcessor
             $this->debugLog($settings, 'Paymos duplicate webhook ignored.', array('duplicate' => true));
             return new CallbackResult(200, 'OK', true);
         } catch (EventInProgressException $e) {
-            // Another delivery of this event holds the lock and has not finished.
-            // Not a duplicate: a 2xx would mark it delivered even if that delivery
-            // then fails. 409 makes the server retry; the lock is not ours to drop.
+            if ($reserved) { $this->releaseEvent(); }
+            // The event or its order is busy. Release only our event reservation;
+            // another delivery's reservation remains owner-fenced.
             $this->debugLog($settings, 'Paymos webhook is still being processed by another delivery.', array('in_progress' => true));
             return new CallbackResult(409, 'In progress');
         } catch (SignatureMismatchException $e) {
             return new CallbackResult(401, 'Bad signature');
         } catch (TimestampSkewException $e) {
             return new CallbackResult(401, 'Bad timestamp');
+        } catch (\DomainException $e) {
+            $this->releaseEvent();
+            return new CallbackResult(400, 'Invalid invoice evidence');
         } catch (\InvalidArgumentException $e) {
             $this->releaseEvent();
             $this->gateway->log('Paymos Shopware configuration error.', array('error' => $e->getMessage()));
@@ -111,7 +116,7 @@ final class WebhookProcessor
             // order is never retried.
             $this->releaseEvent();
             $this->gateway->log('Paymos Shopware webhook processing failed.', array('error' => $e->getMessage()));
-            return new CallbackResult(400, 'Processing failed');
+            return new CallbackResult(500, 'Processing failed');
         }
     }
 
@@ -146,7 +151,7 @@ final class WebhookProcessor
     {
         $externalOrderId = $event->externalOrderId();
         if ($externalOrderId === '') {
-            throw new \RuntimeException('Paymos webhook payload is missing external order id.');
+            throw new \DomainException('Paymos webhook payload is missing external order id.');
         }
 
         $row = $this->invoiceStore->findByExternalOrderId($externalOrderId);
@@ -163,8 +168,28 @@ final class WebhookProcessor
      */
     private function applyEvent(WebhookEvent $event, $environment, array $row, array $settings, $reverseVerify)
     {
+        return $this->invoiceStore->synchronized($row['transaction_id'], function () use ($event, $environment, $row, $settings, $reverseVerify) {
+            $fresh = $this->invoiceStore->findByExternalOrderId($event->externalOrderId());
+            if (!is_array($fresh) || (string) $fresh['transaction_id'] !== (string) $row['transaction_id']) {
+                throw new \RuntimeException('Paymos invoice snapshot changed while acquiring its lock.');
+            }
+            return $this->applyLockedEvent($event, $environment, $fresh, $settings, $reverseVerify);
+        });
+    }
+
+    private function applyLockedEvent(WebhookEvent $event, $environment, array $row, array $settings, $reverseVerify)
+    {
         $config = Config::fromSettings($settings);
         $this->assertRowMatchesEvent($row, $event, $environment);
+
+        // An authenticated stale event needs no API call and must not reopen a final invoice.
+        if (StatusMapper::invoiceAction($event->type(), $event->status()) !== StatusMapper::ACTION_NOTE_PAID_LATE
+            && StatusMapper::isFinalStatus(isset($row['status']) ? (string) $row['status'] : '')) {
+            if ($config->debugLogging()) {
+                $this->gateway->log('Paymos ignored an invoice status that arrived after a final one. Invoice: ' . $event->invoiceId());
+            }
+            return false;
+        }
 
         if ($reverseVerify && $this->requiresReverseVerify($event)) {
             $result = (new InvoiceReverseVerifier($this->client($environment, $settings)))->verify($event, array(
@@ -175,9 +200,11 @@ final class WebhookProcessor
             ));
 
             if (!$result->isVerified()) {
-                throw new \RuntimeException('Paymos reverse verification failed: ' . $result->reason());
+                throw new \DomainException('Paymos reverse verification failed: ' . $result->reason());
             }
         }
+
+        $this->invoiceStore->assertLocked($row['transaction_id']);
 
         // Nothing leaves a final status on the server (Invoice.IsTerminal), so an
         // event that arrives after one is an out-of-order redelivery. The mapper
@@ -205,14 +232,6 @@ final class WebhookProcessor
             return false;
         }
 
-        if (StatusMapper::isFinalStatus(isset($row['status']) ? (string) $row['status'] : '')) {
-            if ($config->debugLogging()) {
-                $this->gateway->log('Paymos ignored an invoice status that arrived after a final one. Invoice: ' . $event->invoiceId());
-            }
-            return false;
-        }
-
-
         $applied = (new OrderMapper($this->gateway))->apply($event, $row, $config->debugLogging());
         $this->invoiceStore->updateStatus($event->invoiceId(), $event->status());
 
@@ -225,16 +244,16 @@ final class WebhookProcessor
     private function assertRowMatchesEvent(array $row, WebhookEvent $event, $environment)
     {
         if ((string) $row['environment'] !== (string) $environment) {
-            throw new \RuntimeException('Paymos event environment does not match Shopware invoice snapshot.');
+            throw new \DomainException('Paymos event environment does not match Shopware invoice snapshot.');
         }
         if ((string) $row['project_id'] !== '' && $event->projectId() !== '' && (string) $row['project_id'] !== $event->projectId()) {
-            throw new \RuntimeException('Paymos event project does not match Shopware invoice snapshot.');
+            throw new \DomainException('Paymos event project does not match Shopware invoice snapshot.');
         }
         if ((string) $row['external_order_id'] !== '' && $event->externalOrderId() !== '' && (string) $row['external_order_id'] !== $event->externalOrderId()) {
-            throw new \RuntimeException('Paymos event external order does not match Shopware invoice snapshot.');
+            throw new \DomainException('Paymos event external order does not match Shopware invoice snapshot.');
         }
         if ((string) $row['paymos_invoice_id'] !== '' && $event->invoiceId() !== '' && (string) $row['paymos_invoice_id'] !== $event->invoiceId()) {
-            throw new \RuntimeException('Paymos event invoice id does not match Shopware invoice snapshot.');
+            throw new \DomainException('Paymos event invoice id does not match Shopware invoice snapshot.');
         }
     }
 
@@ -246,10 +265,10 @@ final class WebhookProcessor
         }
 
         if ($environment === 'sandbox' && $isTest !== true) {
-            throw new \RuntimeException('Sandbox webhook payload is not marked as test.');
+            throw new \DomainException('Sandbox webhook payload is not marked as test.');
         }
         if ($environment === 'live' && $isTest !== false) {
-            throw new \RuntimeException('Live webhook payload is marked as test.');
+            throw new \DomainException('Live webhook payload is marked as test.');
         }
     }
 

@@ -12,6 +12,12 @@ namespace PaymosPayments\Service;
  */
 interface InvoiceStoreInterface
 {
+    /** Serialize checkout, webhook and reconciliation for a native transaction. */
+    public function synchronized($transactionId, callable $action);
+
+    /** Fail closed if the database session lost its order mutex. */
+    public function assertLocked($transactionId);
+
     /**
      * Latest snapshot for a Shopware order transaction id, or null.
      *

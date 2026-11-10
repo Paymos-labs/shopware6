@@ -7,6 +7,7 @@ namespace PaymosPayments\Service;
 use Paymos\Client;
 use Paymos\Exception\ApiException;
 use Paymos\Exception\NotFoundException;
+use Paymos\Plugin\AmountGuard;
 use Paymos\Plugin\InvoiceRenewal;
 use Paymos\Plugin\InvoiceReplacement;
 use Paymos\Plugin\InvoiceReplacementBlockedException;
@@ -43,6 +44,13 @@ final class CheckoutProcessor
      */
     public function start(array $order, array $settings)
     {
+        return $this->store->synchronized($this->field($order, 'transaction_id'), function () use ($order, $settings) {
+            return $this->startLocked($order, $settings);
+        });
+    }
+
+    private function startLocked(array $order, array $settings)
+    {
         $config = Config::fromSettings($settings);
 
         $transactionId = $this->field($order, 'transaction_id');
@@ -62,9 +70,6 @@ final class CheckoutProcessor
         if ($currency === '') {
             throw new \RuntimeException('Shopware order currency is missing.');
         }
-        if ($amount === '' || (float) $amount <= 0.0) {
-            throw new \RuntimeException('Shopware order amount must be greater than zero.');
-        }
 
         $existing = $this->store->findByTransactionId($transactionId);
         if (is_array($existing) && $this->snapshotMatches($existing, $amount, $currency, $config)
@@ -78,6 +83,7 @@ final class CheckoutProcessor
             if ($returnUrl !== '' && $returnUrl !== (isset($existing['return_url']) ? (string) $existing['return_url'] : '')) {
                 $refreshed = $existing;
                 $refreshed['return_url'] = $returnUrl;
+                $this->store->assertLocked($transactionId);
                 $this->store->save($refreshed);
             }
 
@@ -133,6 +139,7 @@ final class CheckoutProcessor
             throw new \RuntimeException('Paymos invoice create response is missing invoice id or payment URL.');
         }
 
+        $this->store->assertLocked($transactionId);
         $this->store->save(array(
             'transaction_id' => $transactionId,
             'paymos_invoice_id' => $paymosInvoiceId,
@@ -201,6 +208,7 @@ final class CheckoutProcessor
 
         $status = $this->responseField($invoice, array('status'));
         if ($status !== '') {
+            $this->store->assertLocked($row['transaction_id']);
             $this->store->updateStatus((string) $row['paymos_invoice_id'], $status);
         }
 
@@ -238,7 +246,7 @@ final class CheckoutProcessor
      */
     private function snapshotMatches(array $row, $amount, $currency, Config $config)
     {
-        return (string) $row['amount'] === (string) $amount
+        return AmountGuard::amountsEqual($row['amount'], $amount)
             && strtoupper((string) $row['currency']) === strtoupper((string) $currency)
             && (string) $row['project_id'] === $config->projectId()
             && (string) $row['environment'] === $config->environment()
@@ -273,6 +281,7 @@ final class CheckoutProcessor
         // invoice's own webhook (invoice.cancelled after our cancel) finds a
         // final row and is ignored as stale.
         if ($result->status() !== '' && $result->status() !== $recorded) {
+            $this->store->assertLocked($row['transaction_id']);
             $this->store->updateStatus((string) $row['paymos_invoice_id'], $result->status());
         }
     }
@@ -293,7 +302,11 @@ final class CheckoutProcessor
 
     private function formatAmount($amount)
     {
-        return number_format((float) $amount, 2, '.', '');
+        $normalized = AmountGuard::normalizeDecimal($amount);
+        if ($normalized === null || $normalized === '0' || $normalized[0] === '-') {
+            throw new \RuntimeException('Shopware order amount must be a positive decimal.');
+        }
+        return $normalized;
     }
 
     /**

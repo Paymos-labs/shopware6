@@ -19,9 +19,51 @@ final class PaymosInvoiceStore implements InvoiceStoreInterface
     /** @var Connection */
     private $connection;
 
+    private $orderLocks = array();
+
     public function __construct(Connection $connection)
     {
         $this->connection = $connection;
+    }
+
+    public function synchronized($transactionId, callable $action)
+    {
+        $key = (string) $transactionId;
+        if (isset($this->orderLocks[$key])) {
+            throw new \LogicException('Paymos transaction lock is already held by this store.');
+        }
+        // Locks and mutations must use the writer on installations with read replicas.
+        if (method_exists($this->connection, 'ensureConnectedToPrimary')) {
+            $this->connection->ensureConnectedToPrimary();
+        }
+        // Connection-owned locks have no lease that can expire during an API call.
+        $name = hash('sha256', $this->connection->fetchOne('SELECT DATABASE()') . ':paymos_shopware:' . $key);
+        $acquired = $this->connection->fetchOne('SELECT GET_LOCK(:name, 0)', array('name' => $name));
+        if ((string) $acquired === '0') {
+            throw new \Paymos\Exception\EventInProgressException('Paymos transaction is busy.');
+        }
+        if ((string) $acquired !== '1') {
+            throw new \RuntimeException('Paymos transaction lock could not be acquired.');
+        }
+        $this->orderLocks[$key] = $name;
+        try {
+            $this->assertLocked($key);
+            return $action();
+        } finally {
+            unset($this->orderLocks[$key]);
+            // MySQL releases only locks owned by this connection, even after reconnect.
+            $this->connection->fetchOne('SELECT RELEASE_LOCK(:name)', array('name' => $name));
+        }
+    }
+
+    public function assertLocked($transactionId)
+    {
+        $name = $this->orderLocks[(string) $transactionId] ?? '';
+        if ($name === '' || (string) $this->connection->fetchOne(
+            'SELECT IS_USED_LOCK(:name) = CONNECTION_ID()', array('name' => $name)
+        ) !== '1') {
+            throw new \RuntimeException('Paymos transaction lock ownership was lost.');
+        }
     }
 
     public function findByTransactionId($transactionId)
@@ -68,11 +110,14 @@ final class PaymosInvoiceStore implements InvoiceStoreInterface
 
         $existing = $this->findByExternalOrderId($data['external_order_id']);
         if (is_array($existing)) {
+            $status = $data['status'];
+            unset($data['status']);
             $this->connection->update(
                 'paymos_payment_invoice',
                 $data,
                 array('external_order_id' => $data['external_order_id'])
             );
+            $this->updateStatus($data['paymos_invoice_id'], $status);
             return;
         }
 
@@ -82,10 +127,10 @@ final class PaymosInvoiceStore implements InvoiceStoreInterface
 
     public function updateStatus($paymosInvoiceId, $status)
     {
-        $this->connection->update(
-            'paymos_payment_invoice',
-            array('status' => (string) $status, 'updated_at' => date('Y-m-d H:i:s')),
-            array('paymos_invoice_id' => (string) $paymosInvoiceId)
+        $this->connection->executeStatement(
+            "UPDATE `paymos_payment_invoice` SET `status` = :status, `updated_at` = :now "
+            . "WHERE `paymos_invoice_id` = :id AND `status` NOT IN ('paid','paid_over','underpaid','expired','cancelled')",
+            array('status' => (string) $status, 'now' => date('Y-m-d H:i:s'), 'id' => (string) $paymosInvoiceId)
         );
     }
 

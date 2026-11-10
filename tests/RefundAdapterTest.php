@@ -171,7 +171,7 @@ function sw_refund_throws(callable $action, string $reason = ''): void
     try { $action(); } catch (\RuntimeException $error) {
         if ($reason !== '') { assertContainsValue($reason, $error->getMessage(), 'Refusal reason'); }
         return;
-    } catch (\InvalidArgumentException $error) {
+    } catch (\InvalidArgumentException | \DomainException $error) {
         if ($reason !== '') { assertContainsValue($reason, $error->getMessage(), 'Refusal reason'); }
         return;
     }

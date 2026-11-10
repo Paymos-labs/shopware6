@@ -290,7 +290,7 @@ final class RefundAdapter implements NativeRefundProjectorInterface
             || (isset($data['refund_mode']) && $intent->mode() !== $data['refund_mode'])
             || (isset($data['external_order_id']) && $intent->externalOrderId() !== $data['external_order_id'])
             || (isset($data['is_test']) && $data['is_test'] !== ($environment === 'sandbox'))) {
-            throw new \RuntimeException('refund_callback_scope_conflict');
+            throw new \DomainException('refund_callback_scope_conflict');
         }
         $this->reconcile($intent->operationId());
     }
@@ -303,7 +303,7 @@ final class RefundAdapter implements NativeRefundProjectorInterface
             if ($payment['environment'] !== $environment || $payment['paymos_invoice_id'] !== $invoiceId
                 || (isset($hint['project_id']) && $hint['project_id'] !== $payment['project_id'])
                 || (isset($hint['is_test']) && $hint['is_test'] !== ($environment === 'sandbox'))) {
-                throw new \RuntimeException('refund_callback_scope_conflict');
+                throw new \DomainException('refund_callback_scope_conflict');
             }
             $client = $this->client($environment);
             $refund = VerifiedRefund::fromApi($client->refunds()->get($withdrawalId),
@@ -314,7 +314,7 @@ final class RefundAdapter implements NativeRefundProjectorInterface
                 || (isset($hint['mode']) && $hint['mode'] !== $refund->mode())
                 || (isset($hint['refund_mode']) && $hint['refund_mode'] !== $refund->mode())
                 || (isset($hint['external_order_id']) && $hint['external_order_id'] !== $refund->externalOrderId())) {
-                throw new \RuntimeException('refund_unbound_scope_conflict');
+                throw new \DomainException('refund_unbound_scope_conflict');
             }
             $this->store->saveUnbound($paymentKey, $refund);
         });

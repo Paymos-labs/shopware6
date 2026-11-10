@@ -24,7 +24,7 @@ function test_sw_checkout_creates_invoice_and_snapshots_order()
     // Payload contains only the allowed fields.
     $payload = $invoices->payloads[0];
     assertSameValue('prj_123', $payload['project_id'], 'Payload carries the project id.');
-    assertSameValue('100.00', $payload['amount'], 'Payload amount is the formatted order amount.');
+    assertSameValue('100', $payload['amount'], 'Payload amount is the canonical order amount.');
     assertSameValue('USD', $payload['currency'], 'Payload currency is the order currency.');
     assertSameValue('10001_0', $payload['external_order_id'], 'External order id is order-number + renew suffix.');
     assertSameValue('cust_77', $payload['client_id'], 'Client id is the native customer id.');
@@ -34,7 +34,7 @@ function test_sw_checkout_creates_invoice_and_snapshots_order()
 
     // Snapshot persisted for the webhook AmountGuard to compare against.
     $row = $store->findByTransactionId('txn_1');
-    assertSameValue('100.00', (string) $row['amount'], 'Snapshot stores the order amount.');
+    assertSameValue('100', (string) $row['amount'], 'Snapshot stores the order amount.');
     assertSameValue('USD', (string) $row['currency'], 'Snapshot stores the order currency.');
     assertSameValue('inv_123', (string) $row['paymos_invoice_id'], 'Snapshot stores the invoice id.');
     assertSameValue('10001_0', (string) $row['external_order_id'], 'Snapshot stores the external order id.');
@@ -110,7 +110,28 @@ function test_sw_checkout_amount_is_decimal_safe()
     // a clean dot-decimal string, never "100" with a lost cent or scientific
     // notation.
     $processor->start(sw_order(array('amount' => 100.1)), sw_settings());
-    assertSameValue('100.10', $invoices->payloads[0]['amount'], 'Float amount formats to 2dp dot-decimal.');
+    assertSameValue('100.1', $invoices->payloads[0]['amount'], 'Native float amount normalizes without forcing a scale.');
+}
+
+function test_sw_checkout_preserves_three_decimal_currency_and_renews_on_third_digit_change()
+{
+    sw_write_generated_config();
+    $store = new InMemoryInvoiceStore();
+    $invoices = new FakePaymosInvoices();
+    $processor = new CheckoutProcessor($store, static function () use ($invoices) {
+        return new FakePaymosClient($invoices);
+    });
+
+    $processor->start(sw_order(array('amount' => '10.001', 'currency' => 'BHD')), sw_settings());
+    assertSameValue('10.001', $invoices->payloads[0]['amount'], 'BHD invoice must retain its third decimal digit.');
+    assertSameValue('10.001', $store->findByTransactionId('txn_1')['amount'], 'BHD snapshot keeps the exact amount.');
+
+    $same = $processor->start(sw_order(array('amount' => '10.0010', 'currency' => 'BHD')), sw_settings());
+    assertSameValue('1', $same['reused'], 'Equivalent decimal spellings reuse the invoice.');
+    $processor->start(sw_order(array('amount' => '10.002', 'currency' => 'BHD')), sw_settings());
+    assertSameValue(2, count($invoices->payloads), 'Third digit change requires a new invoice.');
+    assertSameValue('10.002', $invoices->payloads[1]['amount'], 'Renewed invoice keeps the changed exact amount.');
+    assertSameValue('10001_1', $invoices->payloads[1]['external_order_id'], 'Third digit change bumps the external ID.');
 }
 
 function test_sw_checkout_rejects_missing_currency()

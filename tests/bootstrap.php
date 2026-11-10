@@ -63,6 +63,9 @@ spl_autoload_register(static function ($class) {
 if (!class_exists('Doctrine\\DBAL\\Connection')) {
     eval('namespace Doctrine\\DBAL; class Connection {}');
 }
+if (!class_exists('Doctrine\\DBAL\\Exception\\UniqueConstraintViolationException')) {
+    eval('namespace Doctrine\\DBAL\\Exception; class UniqueConstraintViolationException extends \\RuntimeException {}');
+}
 
 /**
  * In-memory fake of the slice of Doctrine DBAL Connection that EventStore uses.
@@ -124,7 +127,7 @@ final class FakeDbalConnection extends \Doctrine\DBAL\Connection
         $id = (string) $data['event_id'];
         if (isset($this->rows[$id])) {
             // Duplicate PRIMARY KEY — mirror MySQL/DBAL throwing.
-            throw new \RuntimeException('Duplicate entry for key PRIMARY: ' . $id);
+            throw new \Doctrine\DBAL\Exception\UniqueConstraintViolationException('Duplicate entry for key PRIMARY: ' . $id);
         }
         $this->rows[$id] = $data;
 

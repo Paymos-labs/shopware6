@@ -46,6 +46,19 @@ function test_sw_mapper_changed_transaction_total_cannot_be_paid_by_old_invoice(
     assertSameValue(0, count($gateway->transitions), 'Changed order cannot be marked paid.');
 }
 
+function test_sw_mapper_third_decimal_change_is_not_payment_evidence()
+{
+    $gateway = new FakeShopwareGateway(array('txn_1' => 'in_progress'));
+    $gateway->orderContexts['txn_1'] = array('amount' => '10.002', 'currency' => 'BHD');
+    $paid = (new OrderMapper($gateway))->apply(
+        sw_mapper_event('invoice.paid', 'paid', array('amount' => '10.001', 'currency' => 'BHD')),
+        sw_mapper_row(array('amount' => '10.001', 'currency' => 'BHD')),
+        false
+    );
+    assertFalseValue($paid, 'Third decimal amount drift must hold the order.');
+    assertSameValue(0, count($gateway->transitions), 'Changed BHD order must not be paid.');
+}
+
 function test_sw_mapper_marks_paid_on_invoice_paid()
 {
     $gateway = new FakeShopwareGateway(array('txn_1' => 'in_progress'));

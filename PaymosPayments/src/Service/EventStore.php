@@ -66,15 +66,10 @@ final class EventStore implements CommitAwareEventStoreInterface
 
         // Purge expired locks so a re-delivery after the dedup window is not
         // falsely rejected (and the table does not grow unbounded).
-        try {
-            $this->connection->executeStatement(
-                'DELETE FROM `paymos_payment_event` WHERE `expires_at` < :now',
-                array('now' => $now)
-            );
-        } catch (\Throwable $e) {
-            // A GC failure must not block dedup; the INSERT below is the real
-            // guard.
-        }
+        $this->connection->executeStatement(
+            'DELETE FROM `paymos_payment_event` WHERE `expires_at` < :now',
+            array('now' => $now)
+        );
 
         // Insert with a SHORT reservation TTL only. commit() extends it to the
         // full dedup window after the order mutation succeeds; this way a
@@ -90,7 +85,7 @@ final class EventStore implements CommitAwareEventStoreInterface
                 'expires_at' => $now + self::RESERVATION_TTL_SECONDS,
                 'created_at' => $now,
             ));
-        } catch (\Throwable $e) {
+        } catch (\Doctrine\DBAL\Exception\UniqueConstraintViolationException $e) {
             // Duplicate primary key (already seen) or a race we lost.
             return false;
         }
@@ -115,16 +110,10 @@ final class EventStore implements CommitAwareEventStoreInterface
             return false;
         }
 
-        try {
-            $row = $this->connection->fetchAssociative(
-                'SELECT `expires_at`, `created_at` FROM `paymos_payment_event` WHERE `event_id` = :id',
-                array('id' => $eventId)
-            );
-        } catch (\Throwable $e) {
-            // Cannot tell: treat as not committed, so the server retries rather
-            // than being told the event was delivered.
-            return false;
-        }
+        $row = $this->connection->fetchAssociative(
+            'SELECT `expires_at`, `created_at` FROM `paymos_payment_event` WHERE `event_id` = :id',
+            array('id' => $eventId)
+        );
         if (!is_array($row)) {
             return false;
         }
@@ -154,20 +143,14 @@ final class EventStore implements CommitAwareEventStoreInterface
         // Extend the reservation to the full dedup window now the order
         // mutation has succeeded, so a re-delivery of this event is suppressed
         // for the whole window.
-        try {
-            $affected = $this->connection->update(
-                'paymos_payment_event',
-                array('expires_at' => time() + $this->pendingTtlSeconds),
-                array(
-                    'event_id' => $this->pendingEventId,
-                    'owner_token' => $this->pendingOwnerToken,
-                )
-            );
-        } catch (\Throwable $e) {
-            // Best effort: if the extend fails the row still expires via the
-            // reservation TTL and the server's retry would re-process it.
-            $affected = 0;
-        }
+        $affected = $this->connection->update(
+            'paymos_payment_event',
+            array('expires_at' => time() + $this->pendingTtlSeconds),
+            array(
+                'event_id' => $this->pendingEventId,
+                'owner_token' => $this->pendingOwnerToken,
+            )
+        );
 
         $this->pendingEventId = '';
         $this->pendingOwnerToken = '';
