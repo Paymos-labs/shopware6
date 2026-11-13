@@ -76,6 +76,24 @@ final class PaymosInvoiceStore implements InvoiceStoreInterface
         return is_array($row) ? $row : null;
     }
 
+    public function findLatestByOrderNumber($orderNumber)
+    {
+        // LIKE narrows to "{orderNumber}_…"; belongsToOrder() keeps only an
+        // all-digit suffix, so order "A" never picks up order "A_1"'s rows.
+        $prefix = addcslashes((string) $orderNumber, '\\%_') . '\\_%';
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT * FROM `paymos_payment_invoice` WHERE `external_order_id` LIKE :prefix ORDER BY `id` DESC',
+            array('prefix' => $prefix)
+        );
+        foreach (is_array($rows) ? $rows : array() as $row) {
+            if (CheckoutProcessor::belongsToOrder((string) $row['external_order_id'], (string) $orderNumber)) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
+
     public function findByExternalOrderId($externalOrderId)
     {
         $row = $this->connection->fetchAssociative(

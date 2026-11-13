@@ -47,6 +47,18 @@ final class InMemoryInvoiceStore implements InvoiceStoreInterface
         return $match;
     }
 
+    public function findLatestByOrderNumber($orderNumber)
+    {
+        $match = null;
+        foreach ($this->rows as $row) {
+            if (CheckoutProcessor::belongsToOrder((string) $row['external_order_id'], (string) $orderNumber)) {
+                $match = $row;
+            }
+        }
+
+        return $match;
+    }
+
     public function findByExternalOrderId($externalOrderId)
     {
         foreach ($this->rows as $row) {

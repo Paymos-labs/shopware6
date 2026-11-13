@@ -44,9 +44,28 @@ final class CheckoutProcessor
      */
     public function start(array $order, array $settings)
     {
-        return $this->store->synchronized($this->field($order, 'transaction_id'), function () use ($order, $settings) {
-            return $this->startLocked($order, $settings);
+        // The external order id is per order number, not per transaction, and
+        // Shopware can give one order several transactions (A47-H01). Checkouts
+        // of the same order are therefore serialized on the order number first.
+        return $this->store->synchronized('order:' . $this->field($order, 'order_number'), function () use ($order, $settings) {
+            return $this->store->synchronized($this->field($order, 'transaction_id'), function () use ($order, $settings) {
+                return $this->startLocked($order, $settings);
+            });
         });
+    }
+
+    /**
+     * Whether an external order id "{orderNumber}_{renewCount}" was cut for
+     * this order number.
+     */
+    public static function belongsToOrder($externalOrderId, $orderNumber)
+    {
+        $prefix = (string) $orderNumber . '_';
+        $externalOrderId = (string) $externalOrderId;
+
+        return (string) $orderNumber !== ''
+            && strncmp($externalOrderId, $prefix, strlen($prefix)) === 0
+            && ctype_digit(substr($externalOrderId, strlen($prefix)));
     }
 
     private function startLocked(array $order, array $settings)
@@ -98,10 +117,26 @@ final class CheckoutProcessor
             $this->closeBeforeReplacing($existing, $config);
         }
 
+        // Shopware cancels the previous transaction and creates a new one for
+        // the same order when the buyer changes the payment method after the
+        // order or the order total changed (SetPaymentOrderRoute). That
+        // transaction has no snapshot yet, but the order's latest invoice
+        // belongs to the previous one: it is closed first (it may still be
+        // payable) and stays bound to its own transaction (A47-H01).
+        $latest = $this->store->findLatestByOrderNumber($orderNumber);
+        if (is_array($latest) && (string) $latest['transaction_id'] !== $transactionId) {
+            $this->store->synchronized((string) $latest['transaction_id'], function () use ($latest, $config) {
+                $this->closeBeforeReplacing($latest, $config);
+            });
+        }
+
         // Deterministic, version-bumped external order id: reuse while the
         // amount snapshot holds, bump a suffix when the order changed so a
         // changed order gets a fresh invoice (the server keys on this id).
-        $renewCount = is_array($existing) && isset($existing['renew_count']) ? ((int) $existing['renew_count'] + 1) : 0;
+        // The next suffix follows the order's latest invoice, whichever
+        // transaction it belongs to, so a key is never reused across them.
+        $previous = is_array($latest) ? $latest : $existing;
+        $renewCount = is_array($previous) && isset($previous['renew_count']) ? ((int) $previous['renew_count'] + 1) : 0;
         $externalOrderId = $orderNumber . '_' . $renewCount;
 
         $payload = $this->createPayload($order, $config, $amount, $currency, $externalOrderId);
@@ -153,7 +188,12 @@ final class CheckoutProcessor
             // _sw_payment_token) so the storefront return bridge can hand the
             // buyer back to Shopware's finalize flow. NEVER sent to Paymos.
             'return_url' => $this->field($order, 'return_url'),
-            'status' => $this->responseField($response, array('status')) ?: 'created',
+            // An idempotent retry after a lost create response can return an
+            // invoice that is already terminal on the server (A47-01). That is an
+            // observation, not an applied native payment: a final status here
+            // would make the webhook drop the event as stale and the reconciler
+            // skip the row, so the payment would never reach the transaction.
+            'status' => $this->snapshotStatus($this->responseField($response, array('status'))),
             'renew_count' => $renewCount,
         ));
 
@@ -298,6 +338,16 @@ final class CheckoutProcessor
         return new Client($environment === null
             ? $config->clientConfig()
             : $config->clientConfigForEnvironment($environment));
+    }
+
+    /**
+     * The status a new snapshot starts with: the server's non-final status, or
+     * 'created' when it reported none or a final one that no native transition
+     * has applied yet.
+     */
+    private function snapshotStatus($observedStatus)
+    {
+        return $observedStatus === '' || StatusMapper::isFinalStatus($observedStatus) ? 'created' : $observedStatus;
     }
 
     private function formatAmount($amount)

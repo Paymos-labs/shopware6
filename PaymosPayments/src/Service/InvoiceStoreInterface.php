@@ -27,6 +27,15 @@ interface InvoiceStoreInterface
     public function findByTransactionId($transactionId);
 
     /**
+     * Latest snapshot of any transaction of the order, found by its external
+     * order id "{orderNumber}_{renewCount}", or null.
+     *
+     * @param string $orderNumber
+     * @return array<string, mixed>|null
+     */
+    public function findLatestByOrderNumber($orderNumber);
+
+    /**
      * Snapshot whose external order id matches the webhook payload, or null.
      *
      * @param string $externalOrderId

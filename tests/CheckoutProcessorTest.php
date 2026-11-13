@@ -379,3 +379,117 @@ function test_sw_checkout_cancels_the_old_invoice_in_its_own_environment()
     assertSameValue(array('create', 'cancel inv_123'), $sandbox->calls, 'the sandbox invoice is cancelled with sandbox credentials.');
     assertSameValue(array('create'), $live->calls, 'only the create goes to live.');
 }
+
+/**
+ * A47-01: an idempotent create replay after a lost first response returns an
+ * invoice that is already paid on the server. The new snapshot must stay
+ * applicable, so the verified webhook or the reconciler marks the Shopware
+ * transaction paid exactly once.
+ */
+function test_sw_checkout_terminal_create_replay_is_applied_exactly_once()
+{
+    foreach (array('paid', 'paid_over') as $status) {
+        foreach (array('callback', 'reconcile') as $route) {
+            sw_write_generated_config();
+            $store = new InMemoryInvoiceStore();
+            $invoices = new FakePaymosInvoices(array(
+                'invoice_id' => 'inv_123',
+                'payment_url' => 'https://pay.paymos.test/inv_123',
+                'status' => $status,
+            ));
+            (new CheckoutProcessor($store, static function () use ($invoices) {
+                return new FakePaymosClient($invoices);
+            }))->start(sw_order(), sw_settings());
+
+            $row = $store->findByTransactionId('txn_1');
+            assertSameValue('created', (string) $row['status'], $status . ': a terminal create response is not an applied native payment.');
+
+            $gateway = new FakeShopwareGateway(array('txn_1' => 'open'));
+            $live = array(
+                'invoice_id' => 'inv_123',
+                'project_id' => 'prj_123',
+                'status' => $status,
+                'is_test' => true,
+                'order' => array('external_id' => '10001_0', 'amount' => '100', 'currency' => 'USD'),
+            );
+            $factory = static function () use ($live) { return sw_reverse_client($live, time()); };
+
+            if ($route === 'callback') {
+                $events = new \Paymos\Webhook\InMemoryEventStore();
+                $processor = new \PaymosPayments\Service\WebhookProcessor($gateway, $store, $events, $factory);
+                $body = json_encode(sw_invoice_event('evt_replayed_' . $status, 'invoice.' . $status, $status));
+                $header = sw_signed_header('whsec_sandbox', $body, 1709000000);
+                assertSameValue(200, $processor->handle($body, $header, sw_settings(), 1709000000)->statusCode(), $status . ': the verified event is applied.');
+                assertSameValue(200, $processor->handle($body, $header, sw_settings(), 1709000000)->statusCode(), $status . ': the duplicate is acknowledged.');
+            } else {
+                $reconciler = new \PaymosPayments\Service\Reconciler($gateway, $store, $factory);
+                assertSameValue(1, $reconciler->run(sw_settings(), time() + 7200), $status . ': the reconciler applies the payment.');
+                assertSameValue(0, $reconciler->run(sw_settings(), time() + 7200), $status . ': an applied payment is not applied again.');
+            }
+
+            $paid = array_filter($gateway->transitions, static function ($t) { return $t['action'] === 'paid'; });
+            assertSameValue(1, count($paid), $status . '/' . $route . ': exactly one native paid transition.');
+            assertSameValue('paid', $gateway->states['txn_1'], $status . '/' . $route . ': the transaction is paid.');
+            assertSameValue($status, (string) $store->findByTransactionId('txn_1')['status'], $status . '/' . $route . ': the snapshot is final only after the native apply.');
+        }
+    }
+}
+
+/**
+ * A47-H01: Shopware's SetPaymentOrderRoute cancels the order's transaction and
+ * creates a new one for the same order number when the buyer changes the
+ * payment method after the order or the total changed. The new transaction
+ * must not reuse the old external order id (a changed amount would be refused
+ * as an idempotency conflict, the same amount would hand back and rebind the
+ * old invoice); the old invoice is closed first and keeps its own binding.
+ */
+function test_sw_checkout_second_transaction_of_an_order_never_rebinds_the_first_invoice()
+{
+    foreach (array('100.00', '120.00') as $amount) {
+        sw_write_generated_config();
+        $store = new InMemoryInvoiceStore();
+        $first = new FakePaymosInvoices();
+        (new CheckoutProcessor($store, static function () use ($first) {
+            return new FakePaymosClient($first);
+        }))->start(sw_order(), sw_settings());
+
+        $second = new FakePaymosInvoices(array(
+            'invoice_id' => 'inv_456',
+            'payment_url' => 'https://pay.paymos.test/inv_456',
+            'status' => 'awaiting_client',
+        ));
+        $result = (new CheckoutProcessor($store, static function () use ($second) {
+            return new FakePaymosClient($second);
+        }))->start(sw_order(array('transaction_id' => 'txn_2', 'amount' => $amount)), sw_settings());
+
+        assertSameValue(array('cancel inv_123', 'create'), $second->calls, $amount . ': the first transaction\'s invoice is closed before the next one.');
+        assertSameValue('10001_1', $second->payloads[0]['external_order_id'], $amount . ': the new transaction gets the next key of the order.');
+        assertSameValue('inv_456', $result['invoice_id'], $amount . ': the new transaction gets its own invoice.');
+        $old = $store->findByExternalOrderId('10001_0');
+        assertSameValue('txn_1', (string) $old['transaction_id'], $amount . ': the first invoice stays bound to its transaction.');
+        assertSameValue('cancelled', (string) $old['status'], $amount . ': the first invoice records its close.');
+        assertSameValue('10001_1', (string) $store->findByTransactionId('txn_2')['external_order_id'], $amount . ': the new row belongs to the new transaction.');
+    }
+
+    // The previous transaction's invoice can still be paid: nothing new is issued.
+    sw_write_generated_config();
+    $store = new InMemoryInvoiceStore();
+    $first = new FakePaymosInvoices();
+    (new CheckoutProcessor($store, static function () use ($first) {
+        return new FakePaymosClient($first);
+    }))->start(sw_order(), sw_settings());
+    $second = new FakePaymosInvoices(array(), array('invoice_id' => 'inv_123', 'status' => 'awaiting_payment', 'is_final' => false));
+    $second->cancelException = sw_api_error(409, 'invoice_cannot_be_cancelled', 'Only invoices awaiting client can be cancelled.');
+    $blocked = false;
+    try {
+        (new CheckoutProcessor($store, static function () use ($second) {
+            return new FakePaymosClient($second);
+        }))->start(sw_order(array('transaction_id' => 'txn_2')), sw_settings());
+    } catch (\Paymos\Plugin\InvoiceReplacementBlockedException $e) {
+        $blocked = true;
+    }
+    assertTrueValue($blocked, 'a payable invoice of the previous transaction blocks the new one.');
+    assertSameValue(0, count($second->payloads), 'no second invoice is created while the first can be paid.');
+    assertSameValue(null, $store->findByTransactionId('txn_2'), 'the new transaction gets no binding.');
+    assertSameValue('txn_1', (string) $store->findByExternalOrderId('10001_0')['transaction_id'], 'the first binding is unchanged.');
+}
