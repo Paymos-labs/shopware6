@@ -116,3 +116,17 @@ function test_sw_reconcile_does_not_roll_back_a_paid_transaction()
     assertSameValue('paid', $gateway->states['txn_1'], 'A paid transaction is not downgraded by reconcile.');
     assertSameValue(0, count($gateway->transitions), 'No transition happens on a guarded reconcile.');
 }
+
+function test_sw_reconcile_recovers_manual_review_after_amount_correction()
+{
+    sw_write_generated_config();
+    $gateway = new FakeShopwareGateway(array('txn_1' => 'in_progress'));
+    $gateway->orderContexts['txn_1']['amount'] = '120';
+    $store = sw_reconcile_store(array(sw_reconcile_row()));
+    $reconciler = new Reconciler($gateway, $store, static function () { return sw_reverse_client(); });
+    assertSameValue(0, $reconciler->run(sw_settings(), 1709000000), 'Mismatch is not applied.');
+    $gateway->orderContexts['txn_1']['amount'] = '100';
+    assertSameValue(1, $reconciler->run(sw_settings(), 1709000000), 'Corrected payment is applied.');
+    assertSameValue(0, $reconciler->run(sw_settings(), 1709000000), 'Completed payment leaves the queue.');
+    assertSameValue(1, count($gateway->transitions), 'Only one native payment.');
+}

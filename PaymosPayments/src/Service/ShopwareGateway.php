@@ -43,6 +43,19 @@ final class ShopwareGateway implements ShopwareGatewayInterface
         $this->stateHandler->paid((string) $transactionId, Context::createDefaultContext());
     }
 
+    public function paymentReview($transactionId, $invoiceId, $status, $reason)
+    {
+        // Preserve unrelated custom fields and bind the update to the exact order version.
+        $this->connection->executeStatement(
+            'UPDATE `order` AS o INNER JOIN `order_transaction` AS t '
+            . 'ON o.id = t.order_id AND o.version_id = t.order_version_id '
+            . "SET o.custom_fields = JSON_SET(COALESCE(o.custom_fields, JSON_OBJECT()), "
+            . "'$.paymos_invoice_status', :observation, '$.paymos_payment_review', :reason) "
+            . 'WHERE t.id = UNHEX(:id)',
+            array('id' => (string) $transactionId, 'observation' => $invoiceId . ': ' . $status, 'reason' => (string) $reason)
+        );
+    }
+
     public function markCancelled($transactionId)
     {
         $this->stateHandler->cancel((string) $transactionId, Context::createDefaultContext());

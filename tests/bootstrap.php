@@ -320,6 +320,11 @@ function sw_reverse_client(array $invoiceResponse = array(), $timestamp = 170900
  */
 final class FakeShopwareGateway implements PaymosPayments\Service\ShopwareGatewayInterface
 {
+    public $reviews = array();
+    public function paymentReview($transactionId, $invoiceId, $status, $reason)
+    {
+        $this->reviews[$transactionId] = array('invoice_id' => $invoiceId, 'status' => $status, 'reason' => $reason);
+    }
     public $failBeforePayment = false;
     public $failAfterPayment = false;
     /** @var array<string, string> Current technical state per transaction id. */

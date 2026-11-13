@@ -77,6 +77,7 @@ final class OrderMapper
 
         // The CMS may have committed before the invoice snapshot was saved.
         if ($action === StatusMapper::ACTION_PAYMENT_COMPLETE && in_array($currentState, self::PAID_STATES, true)) {
+            $this->gateway->paymentReview($transactionId, $event->invoiceId(), $event->status(), '');
             return false;
         }
 
@@ -86,17 +87,16 @@ final class OrderMapper
                 throw new \RuntimeException('Shopware order transaction could not be read before payment.');
             }
             if (!$this->amountSafe($event, $row, $currentOrder)) {
-                // Amount/currency drift on a reverse-verified paid invoice is not a
-                // transient failure — do NOT throw (that 400s and the server retries
-                // forever). Hold for manual review and acknowledge the webhook.
-                $this->gateway->log('Paymos payment needs manual review. ' . AmountGuard::mismatchSummary(
+                $reason = 'Paymos payment needs manual review. ' . AmountGuard::mismatchSummary(
                     $row['amount'],
                     $row['currency'],
                     isset($currentOrder['amount']) ? (string) $currentOrder['amount'] : '',
                     isset($currentOrder['currency']) ? (string) $currentOrder['currency'] : '',
                     $event->orderAmount(),
                     $event->orderCurrency()
-                ));
+                );
+                $this->gateway->paymentReview($transactionId, $event->invoiceId(), $event->status(), $reason);
+                $this->gateway->log($reason);
                 return false;
             }
             // Recovery: a transaction that already reached a terminal NON-paid state
@@ -107,6 +107,7 @@ final class OrderMapper
                 $this->gateway->reopen($transactionId);
             }
             $this->gateway->markPaid($transactionId);
+            $this->gateway->paymentReview($transactionId, $event->invoiceId(), $event->status(), '');
             return true;
         }
 

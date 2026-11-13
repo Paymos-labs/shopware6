@@ -159,13 +159,24 @@ function test_sw_verified_paid_invoice_with_changed_local_total_holds_for_manual
     sw_write_generated_config();
     $gateway = new FakeShopwareGateway(array('txn_1' => 'in_progress'));
     $gateway->orderContexts['txn_1'] = array('amount' => '120.00', 'currency' => 'USD');
-    $processor = new WebhookProcessor($gateway, sw_seeded_store(), new InMemoryEventStore(), static function () {
-        return sw_reverse_client();
-    });
+    $store = sw_seeded_store();
+    $processor = new WebhookProcessor($gateway, $store, new PaymosPayments\Service\EventStore(new FakeDbalConnection()), static function () { return sw_reverse_client(); });
     $body = json_encode(sw_invoice_event('evt_local_total_changed', 'invoice.paid', 'paid'));
-    $result = $processor->handle($body, sw_signed_header('whsec_sandbox', $body, 1709000000), sw_settings(), 1709000000);
-    assertSameValue(200, $result->statusCode(), 'A verified invoice with local total drift is held for review.');
-    assertSameValue('in_progress', $gateway->states['txn_1'], 'A payment of 100 cannot complete a local order of 120.');
+    $signature = sw_signed_header('whsec_sandbox', $body, 1709000000);
+    assertSameValue(500, $processor->handle($body, $signature, sw_settings(), 1709000000)->statusCode(), 'Review remains retryable.');
+    assertSameValue('in_progress', $gateway->states['txn_1'], 'Mismatched payment cannot complete the order.');
+    assertSameValue('payment_review', $store->findByExternalOrderId('10001_0')['status'], 'Review stays eligible for reconciliation.');
+    assertTrueValue(strpos($gateway->reviews['txn_1']['reason'], '120') !== false, 'Merchant review records the amount discrepancy.');
+    assertSameValue('paid', $gateway->reviews['txn_1']['status'], 'Observed invoice status is separate.');
+    $stale = json_encode(sw_invoice_event('evt_stale_review', 'invoice.confirming', 'confirming'));
+    $processor->handle($stale, sw_signed_header('whsec_sandbox', $stale, 1709000000), sw_settings(), 1709000000);
+    assertSameValue('payment_review', $store->findByExternalOrderId('10001_0')['status'], 'Stale event cannot erase review.');
+    $gateway->orderContexts['txn_1']['amount'] = '100';
+    assertSameValue(200, $processor->handle($body, $signature, sw_settings(), 1709000000)->statusCode(), 'Same event recovers after correction.');
+    assertSameValue('paid', $store->findByExternalOrderId('10001_0')['status'], 'Applied payment finalizes snapshot.');
+    assertSameValue('', $gateway->reviews['txn_1']['reason'], 'Active review clears after native payment.');
+    $processor->handle($body, $signature, sw_settings(), 1709000000);
+    assertSameValue(1, count($gateway->transitions), 'No second payment transition.');
 }
 
 function test_sw_webhook_does_not_roll_back_paid_order_on_late_cancel()

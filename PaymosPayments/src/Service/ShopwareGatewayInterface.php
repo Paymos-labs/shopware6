@@ -26,6 +26,9 @@ interface ShopwareGatewayInterface
      */
     public function markPaid($transactionId);
 
+    /** Persist invoice observation and a merchant-visible order review reason. */
+    public function paymentReview($transactionId, $invoiceId, $status, $reason);
+
     /**
      * Transition a Shopware order transaction to the "cancelled" state.
      *

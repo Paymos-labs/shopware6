@@ -182,6 +182,12 @@ final class WebhookProcessor
         $config = Config::fromSettings($settings);
         $this->assertRowMatchesEvent($row, $event, $environment);
 
+        if (($row['status'] ?? '') === 'payment_review'
+            && !in_array(StatusMapper::invoiceAction($event->type(), $event->status()),
+                [StatusMapper::ACTION_PAYMENT_COMPLETE, StatusMapper::ACTION_NOTE_PAID_LATE], true)) {
+            return false;
+        }
+
         // An authenticated stale event needs no API call and must not reopen a final invoice.
         if (StatusMapper::invoiceAction($event->type(), $event->status()) !== StatusMapper::ACTION_NOTE_PAID_LATE
             && StatusMapper::isFinalStatus(isset($row['status']) ? (string) $row['status'] : '')) {
@@ -233,6 +239,11 @@ final class WebhookProcessor
         }
 
         $applied = (new OrderMapper($this->gateway))->apply($event, $row, $config->debugLogging());
+        if (StatusMapper::invoiceAction($event->type(), $event->status()) === StatusMapper::ACTION_PAYMENT_COMPLETE
+            && !in_array($this->gateway->transactionState($row['transaction_id']), ['paid', 'refunded', 'refunded_partially'], true)) {
+            $this->invoiceStore->updateStatus($event->invoiceId(), 'payment_review');
+            throw new \RuntimeException('Paymos payment is awaiting native transaction review.');
+        }
         $this->invoiceStore->updateStatus($event->invoiceId(), $event->status());
 
         return $applied;
