@@ -34,7 +34,7 @@ final class RefundAdapter implements NativeRefundProjectorInterface
     public function supports(): bool
     {
         foreach ($this->credentials->settings([])['environments'] ?? [] as $values) {
-            if (CredentialSet::hasCapability($values, 'invoice_refunds_v1') && CredentialSet::refundsEnabled($values)) {
+            if (CredentialSet::hasCapability($values, 'invoice_refunds_v1') && ($values['refund_contract_version'] ?? null) === 1) {
                 return true;
             }
         }
@@ -87,11 +87,11 @@ final class RefundAdapter implements NativeRefundProjectorInterface
                     || ($nativeId !== null && ($existing->fullDraft()['native_id'] ?? null) !== $nativeId)) {
                     throw new \RuntimeException('refund_request_conflict');
                 }
-                $this->assertConnection($existing->projectId(), $existing->environment(), false);
+                $this->assertConnection($existing->projectId(), $existing->environment());
                 return $this->submit($existing);
             }
             $row = $this->native->payment($paymentKey);
-            $this->assertConnection($row['project_id'], $row['environment'], true);
+            $this->assertConnection($row['project_id'], $row['environment']);
             $this->store->assertNewActionAllowed($paymentKey);
             if ($row['state'] !== 'paid') { throw new \RuntimeException('refund_payment_not_paid'); }
             $draft = null;
@@ -174,7 +174,7 @@ final class RefundAdapter implements NativeRefundProjectorInterface
         $this->store->recordState($intent->operationId(), $intent->cashState(), RefundStates::NATIVE_REVIEW, $reason);
         $action = RefundStates::SHOW_REVIEW;
         if ($intent->withdrawalId() !== null) {
-            $this->assertConnection($intent->projectId(), $intent->environment(), false);
+            $this->assertConnection($intent->projectId(), $intent->environment());
             $action = $this->coordinator($this->store->getIntent($intent->operationId()))->reconcile($intent->operationId());
         }
         $this->store->schedule($intent->operationId());
@@ -184,7 +184,7 @@ final class RefundAdapter implements NativeRefundProjectorInterface
     public function preflight(RefundIntent $intent): ?string
     {
         try {
-            $this->assertConnection($intent->projectId(), $intent->environment(), true);
+            $this->assertConnection($intent->projectId(), $intent->environment());
             $this->store->assertLock($intent->paymentKey());
             $this->store->assertNativeConnection();
             return $this->native->validate($intent, false);
@@ -236,7 +236,7 @@ final class RefundAdapter implements NativeRefundProjectorInterface
                 return $this->holdLegacySyntheticCapture($intent);
             }
             if ($intent->withdrawalId() === null && $intent->cashState() === RefundStates::UNKNOWN) {
-                $this->assertConnection($intent->projectId(), $intent->environment(), false);
+                $this->assertConnection($intent->projectId(), $intent->environment());
             }
             $action = $this->coordinator($intent)->reconcile($operationId);
             $this->syncNative($this->store->getIntent($operationId));
@@ -373,7 +373,7 @@ final class RefundAdapter implements NativeRefundProjectorInterface
     {
         return $this->store->withPaymentLock($paymentKey, function () use ($paymentKey) {
             $row = $this->native->payment($paymentKey);
-            $this->assertConnection($row['project_id'], $row['environment'], false);
+            $this->assertConnection($row['project_id'], $row['environment']);
             $invoice = $this->client($row['environment'])->invoices()->get($row['paymos_invoice_id']);
             $this->store->assertLock($paymentKey);
             if (($invoice['invoice_id'] ?? null) !== $row['paymos_invoice_id']
@@ -386,14 +386,40 @@ final class RefundAdapter implements NativeRefundProjectorInterface
             }
             $status = isset($invoice['status']) && is_string($invoice['status']) ? $invoice['status'] : '';
             $payment = isset($invoice['payment']) && is_array($invoice['payment']) ? $invoice['payment'] : [];
-            $paid = in_array($status, ['paid', 'paid_over'], true);
-            $overpaid = $status === 'paid_over';
+            $completedOverpayment = false;
+            foreach ($this->store->forPayment($paymentKey) as $prior) {
+                $observation = $prior->observation();
+                if ($prior->invoiceId() === $row['paymos_invoice_id']
+                    && $prior->projectId() === $row['project_id']
+                    && $prior->environment() === $row['environment']
+                    && $prior->mode() === RefundStates::OVERPAYMENT
+                    && ($prior->cashState() === RefundStates::COMPLETED
+                        || ($observation !== null && $observation->status() === 'completed'))) {
+                    $completedOverpayment = true;
+                    break;
+                }
+            }
+            if (!$completedOverpayment) {
+                foreach ($this->store->unboundForPayment($paymentKey) as $observationRow) {
+                    $refund = VerifiedRefund::fromStorage(json_decode($observationRow['payload'], true, 512, JSON_THROW_ON_ERROR));
+                    if ($refund->invoiceId() === $row['paymos_invoice_id']
+                        && $refund->projectId() === $row['project_id']
+                        && $refund->environment() === $row['environment']
+                        && $refund->mode() === RefundStates::OVERPAYMENT
+                        && $refund->status() === 'completed') {
+                        $completedOverpayment = true;
+                        break;
+                    }
+                }
+            }
             return [
-                'can_refund_full' => $paid,
-                'can_refund_overpayment' => $overpaid,
-                'full_refund_amount' => isset($payment['paid']) && is_string($payment['paid']) ? $payment['paid'] : ($paid ? (string) ($invoice['order']['amount'] ?? '0') : '0'),
-                'overpayment_refund_amount' => $overpaid && isset($payment['paid']) && is_string($payment['paid']) ? $payment['paid'] : '0',
-                'refund_asset' => isset($payment['currency'], $payment['network'])
+                'can_refund_full' => in_array($status, ['paid', 'paid_over'], true),
+                'can_refund_overpayment' => $status === 'paid_over' && !$completedOverpayment,
+                // Gross does not establish the remaining cash after earlier refunds.
+                'full_refund_amount' => null,
+                'overpayment_refund_amount' => null,
+                'refund_asset' => (isset($payment['currency'], $payment['network'])
+                    && is_string($payment['currency']) && is_string($payment['network']))
                     ? ['currency' => $payment['currency'], 'network' => $payment['network']] : null,
             ];
         });
@@ -411,13 +437,12 @@ final class RefundAdapter implements NativeRefundProjectorInterface
                 : 'Paymos refund ' . $intent->cashState()];
     }
 
-    private function assertConnection(string $project, string $environment, bool $new): void
+    private function assertConnection(string $project, string $environment): void
     {
         $values = $this->credentials->settings([])['environments'][$environment] ?? [];
-        if (($values['project_id'] ?? null) !== $project || !CredentialSet::hasCapability($values, 'invoice_refunds_v1')) {
+        if (($values['project_id'] ?? null) !== $project || !CredentialSet::hasCapability($values, 'invoice_refunds_v1') || ($values['refund_contract_version'] ?? null) !== 1) {
             throw new \RuntimeException('refund_reconnect_required');
         }
-        if ($new && !CredentialSet::refundsEnabled($values)) { throw new \RuntimeException('refund_new_actions_disabled'); }
     }
 
     private function client(string $environment): Client

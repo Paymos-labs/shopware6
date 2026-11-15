@@ -231,10 +231,9 @@ function test_sw_refund_unknown_restart_same_key_no_automatic_new_refund()
 
 function test_sw_refund_capability_and_native_guards_before_http()
 {
-    foreach (['capability', 'disabled', 'partial', 'manual', 'mapping', 'busy', 'outer'] as $case) {
+    foreach (['capability', 'partial', 'manual', 'mapping', 'busy', 'outer'] as $case) {
         list($db, $store, $native, $credentials, $http, $adapter) = sw_refunds();
         if ($case === 'capability') { sw_refund_credentials($credentials, ['capabilities' => []]); }
-        if ($case === 'disabled') { sw_refund_credentials($credentials, ['refunds_enabled' => false]); }
         if ($case === 'partial') { $native->partial = true; }
         if ($case === 'manual') { $db->native['state'] = 'refunded_partially'; }
         if ($case === 'mapping') { sw_refund_credentials($credentials, ['project_id' => 'prj_foreign']); }
@@ -634,4 +633,92 @@ function test_sw_admin_refund_snippets_and_no_placeholder_copy()
     assertSameValue('Could not process the Paymos refund request.', $badSubmit->getData()['message'], 'Submit 409 message');
     $badStatus = $controller->status('missing-payment-key');
     assertSameValue('Could not load Paymos refund status.', $badStatus->getData()['message'], 'Status 409 message');
+}
+
+function test_sw_refund_disabled_connect_snapshot_allows_supports_summary_and_submit()
+{
+    foreach (array(null, 2) as $badContractVersion) {
+        list($dbBad, $storeBad, $nativeBad, $credentialsBad, $httpBad, $adapterBad) = sw_refunds();
+        sw_refund_credentials($credentialsBad, ['refund_contract_version' => $badContractVersion]);
+        assertFalseValue($adapterBad->supports(), 'supports() must be false when refund_contract_version !== 1');
+        sw_refund_throws(static function () use ($adapterBad, $nativeBad) {
+            $adapterBad->summary($nativeBad->row['payment_key']);
+        }, 'refund_reconnect_required');
+        sw_refund_throws(static function () use ($adapterBad, $nativeBad) {
+            $adapterBad->full($nativeBad->row['payment_key'], 'request-contract-v-001');
+        }, 'refund_reconnect_required');
+        assertSameValue([], $httpBad->requests, 'No HTTP when refund_contract_version !== 1');
+    }
+
+    list($db, $store, $native, $credentials, $http, $adapter) = sw_refunds();
+    sw_refund_credentials($credentials, ['refunds_enabled' => false]);
+    assertTrueValue($adapter->supports(), 'supports() remains true when invoice_refunds_v1 is present despite refunds_enabled=false');
+    $summary = $adapter->summary($native->row['payment_key']);
+    assertTrueValue($summary['can_refund_full'], 'summary() succeeds with historical refunds_enabled=false');
+    $over = $adapter->overpayment($native->row['payment_key'], 'request-disabled-over-01');
+    assertSameValue('created', $over['cash_state'], 'overpayment() reaches server POST despite refunds_enabled=false');
+
+    list($db2, $store2, $native2, $credentials2, $http2, $adapter2) = sw_refunds();
+    sw_refund_credentials($credentials2, ['refunds_enabled' => false]);
+    $full = $adapter2->nativeFull(str_repeat('b', 32), Context::createDefaultContext());
+    assertSameValue('created', $full['cash_state'], 'nativeFull() reaches server POST despite refunds_enabled=false');
+}
+
+function test_sw_refund_summary_fallback_without_refund_summary_and_completed_overpayment()
+{
+    foreach (['local', 'unbound'] as $source) {
+        list($db, $store, $native, $credentials, $http, $adapter) = sw_refunds();
+        $http->invoice = [
+            'invoice_id' => 'inv_123',
+            'project_id' => 'prj_123',
+            'is_test' => true,
+            'status' => 'paid_over',
+            'order' => ['external_id' => '10001_0', 'amount' => '100', 'currency' => 'USD'],
+            'payment' => ['paid' => '15.00', 'currency' => 'USDT', 'network' => 'TRC20'],
+        ];
+        $before = $adapter->summary($native->row['payment_key']);
+        assertTrueValue($before['can_refund_full'], 'Fallback enables full refund for paid_over');
+        assertTrueValue($before['can_refund_overpayment'], 'Fallback enables overpayment before prior completion');
+        assertSameValue(null, $before['full_refund_amount'], 'Missing refund_summary leaves full_refund_amount null instead of payment.paid');
+        assertSameValue(null, $before['overpayment_refund_amount'], 'Missing refund_summary leaves overpayment_refund_amount null instead of payment.paid');
+        assertSameValue(['currency' => 'USDT', 'network' => 'TRC20'], $before['refund_asset'], 'Fallback exposes refund asset');
+
+        if ($source === 'local') {
+            $over = $adapter->overpayment($native->row['payment_key'], 'request-over-fallback1');
+            $http->withdrawals[$over['withdrawal_id']]['status'] = 'completed';
+            assertSameValue('apply_completed', $adapter->reconcile($over['operation_id']), 'Completed local overpayment applies');
+        } else {
+            $db->tables['paymos_payment_invoice'] = [['transaction_id' => $native->row['payment_key'], 'paymos_invoice_id' => 'inv_123']];
+            $http->withdrawals['wdr_unbound_over'] = [
+                'withdrawal_id' => 'wdr_unbound_over',
+                'invoice_id' => 'inv_123',
+                'mode' => 'overpayment',
+                'external_order_id' => 'dashboard-unbound-over',
+                'project_id' => 'prj_123',
+                'is_test' => true,
+                'amount' => '5.00',
+                'currency' => 'USDT',
+                'network' => 'TRC20',
+                'first_sender' => 'sender-A',
+                'status' => 'completed',
+            ];
+            $adapter->callback(['data' => ['withdrawal_id' => 'wdr_unbound_over', 'invoice_id' => 'inv_123']], 'sandbox');
+        }
+
+        $after = $adapter->summary($native->row['payment_key']);
+        assertFalseValue($after['can_refund_overpayment'], 'Completed ' . $source . ' overpayment suppresses repeat overpayment in summary');
+        assertTrueValue($after['can_refund_full'], 'Full refund remains available after completed overpayment');
+        assertSameValue(null, $after['full_refund_amount'], 'full_refund_amount remains null without refund_summary');
+        assertSameValue(null, $after['overpayment_refund_amount'], 'overpayment_refund_amount remains null without refund_summary');
+
+        $http->invoice['refund_summary'] = [
+            'can_refund_full' => true,
+            'can_refund_overpayment' => true,
+            'full_refund_amount' => '100',
+            'overpayment_refund_amount' => '5',
+        ];
+        $serverSummary = $adapter->summary($native->row['payment_key']);
+        assertSameValue('5', $serverSummary['overpayment_refund_amount'], 'Authoritative server refund_summary passes through unchanged');
+        assertTrueValue($serverSummary['can_refund_overpayment'], 'Fresh server summary remains authoritative');
+    }
 }
