@@ -8,6 +8,10 @@ The public release history also lives at [paymos.io/changelog](https://paymos.io
 
 ## [Unreleased]
 
+## [1.8.11] - 2026-11-15
+
+- chore: rebuild canonical CMS package
+
 ## [1.8.10] - 2026-11-15
 
 - fix(refunds): decouple refund RBAC from Withdraw and unify 12 CMS refund adapters
