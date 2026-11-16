@@ -109,6 +109,11 @@ final class PaymosPaymentHandler67 extends AbstractPaymentHandler
                 'return_url' => $transaction->getReturnUrl(),
             );
 
+            $products = $this->extractProductsFromContext($orderContext);
+            if ($products !== array()) {
+                $order['products'] = $products;
+            }
+
             $result = $this->checkoutProcessor->start($order, $this->settings($orderContext['sales_channel_id']));
         } catch (\Throwable $e) {
             $context = array('error' => $e->getMessage());
@@ -170,6 +175,49 @@ final class PaymosPaymentHandler67 extends AbstractPaymentHandler
                 // the verified webhook, never on this unauthenticated return.
                 return;
         }
+    }
+
+    /**
+     * @param array<string, mixed> $orderContext
+     * @return array<int, array<string, mixed>>
+     */
+    private function extractProductsFromContext(array $orderContext): array
+    {
+        if (!isset($orderContext['products']) || !is_array($orderContext['products'])) {
+            return array();
+        }
+
+        $products = array();
+        foreach ($orderContext['products'] as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            if (array_key_exists('type', $item) && (string) $item['type'] !== 'product') {
+                continue;
+            }
+            if (isset($item['parent_id']) && $item['parent_id'] !== null && $item['parent_id'] !== '') {
+                continue;
+            }
+
+            $payload = isset($item['payload']) && is_array($item['payload']) ? $item['payload'] : array();
+            $title = array_key_exists('title', $item)
+                ? $item['title']
+                : (array_key_exists('label', $item) ? $item['label'] : null);
+            $unitAmount = array_key_exists('unit_amount', $item)
+                ? $item['unit_amount']
+                : (array_key_exists('unit_price', $item) ? $item['unit_price'] : null);
+
+            $products[] = CheckoutProcessor::buildProductCandidate(
+                $title,
+                array_key_exists('description', $item) ? $item['description'] : null,
+                array_key_exists('image_url', $item) ? $item['image_url'] : null,
+                array_key_exists('quantity', $item) ? $item['quantity'] : null,
+                $unitAmount,
+                $payload
+            );
+        }
+
+        return $products;
     }
 
     /**

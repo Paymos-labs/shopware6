@@ -93,7 +93,7 @@ final class ShopwareGateway implements ShopwareGatewayInterface
      * version_id so the live row is matched rather than a draft.
      *
      * @param string $transactionId
-     * @return array<string, string>|null null when the transaction is unknown
+     * @return array<string, mixed>|null null when the transaction is unknown
      */
     public function orderContext($transactionId)
     {
@@ -126,13 +126,97 @@ final class ShopwareGateway implements ShopwareGatewayInterface
             }
         }
 
-        return array(
+        $context = array(
             'order_number' => (string) $row['order_number'],
             'amount' => $total,
             'currency' => isset($row['currency']) ? (string) $row['currency'] : '',
             'customer_id' => isset($row['customer_id']) ? (string) $row['customer_id'] : '',
             'sales_channel_id' => isset($row['sales_channel_id']) ? (string) $row['sales_channel_id'] : '',
         );
+
+        $products = $this->orderProducts($transactionId);
+        if ($products !== array()) {
+            $context['products'] = $products;
+        }
+
+        return $context;
+    }
+
+    /**
+     * Load native top-level product line items for the order attached to a transaction.
+     *
+     * @param string $transactionId
+     * @return array<int, array<string, mixed>>
+     */
+    private function orderProducts($transactionId)
+    {
+        if (!method_exists($this->connection, 'fetchAllAssociative')) {
+            return array();
+        }
+
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT `li`.`type` AS `type`, '
+            . '  `li`.`parent_id` AS `parent_id`, '
+            . '  `li`.`label` AS `label`, '
+            . '  `li`.`description` AS `description`, '
+            . '  `li`.`quantity` AS `quantity`, '
+            . '  `li`.`unit_price` AS `unit_price`, '
+            . '  `li`.`price` AS `price`, '
+            . '  `li`.`payload` AS `payload` '
+            . 'FROM `order_line_item` AS `li` '
+            . 'INNER JOIN `order_transaction` AS `txn` '
+            . '  ON `txn`.`order_id` = `li`.`order_id` AND `txn`.`order_version_id` = `li`.`order_version_id` '
+            . 'WHERE `txn`.`id` = UNHEX(:id) '
+            . 'ORDER BY `li`.`position` ASC, `li`.`id` ASC',
+            array('id' => (string) $transactionId)
+        );
+
+        if (!is_array($rows)) {
+            return array();
+        }
+
+        $products = array();
+        foreach ($rows as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            if ((isset($line['type']) ? (string) $line['type'] : '') !== 'product') {
+                continue;
+            }
+            if (isset($line['parent_id']) && $line['parent_id'] !== null && $line['parent_id'] !== '') {
+                continue;
+            }
+
+            $payload = array();
+            if (isset($line['payload']) && is_string($line['payload'])) {
+                $decodedPayload = json_decode($line['payload'], true);
+                if (is_array($decodedPayload)) {
+                    $payload = $decodedPayload;
+                }
+            }
+
+            $unitAmount = null;
+            if (isset($line['price']) && is_string($line['price'])) {
+                $decodedPrice = json_decode($line['price'], true);
+                if (is_array($decodedPrice) && array_key_exists('unitPrice', $decodedPrice)) {
+                    $unitAmount = $decodedPrice['unitPrice'];
+                }
+            }
+            if ($unitAmount === null && array_key_exists('unit_price', $line)) {
+                $unitAmount = $line['unit_price'];
+            }
+
+            $products[] = CheckoutProcessor::buildProductCandidate(
+                isset($line['label']) ? $line['label'] : null,
+                isset($line['description']) ? $line['description'] : null,
+                null,
+                array_key_exists('quantity', $line) ? $line['quantity'] : null,
+                $unitAmount,
+                $payload
+            );
+        }
+
+        return $products;
     }
 
     public function findLatestPendingTransactionIdForCustomer($customerId, $technicalName)

@@ -8,6 +8,12 @@ The public release history also lives at [paymos.io/changelog](https://paymos.io
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-16
+
+- feat(plugins): add products[] to Magento 2 and Shopware 6 (9.3)
+- chore: bundle Paymos PHP SDK v1.11.0
+- chore: rebuild canonical CMS package
+
 ## [1.8.12] - 2026-11-16
 
 - chore: rebuild canonical CMS package

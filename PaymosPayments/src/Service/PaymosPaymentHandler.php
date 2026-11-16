@@ -167,7 +167,7 @@ final class PaymosPaymentHandler implements AsynchronousPaymentHandlerInterface,
     {
         $order = $transaction->getOrder();
 
-        return array(
+        $orderArray = array(
             'transaction_id' => $transaction->getOrderTransaction()->getId(),
             'order_number' => (string) $order->getOrderNumber(),
             'amount' => $transaction->getOrderTransaction()->getAmount()->getTotalPrice(),
@@ -178,6 +178,78 @@ final class PaymosPaymentHandler implements AsynchronousPaymentHandlerInterface,
             // it to drive Shopware's finalize flow when the buyer comes back.
             'return_url' => $transaction->getReturnUrl(),
         );
+
+        $products = $this->extractProducts($order);
+        if ($products !== array()) {
+            $orderArray['products'] = $products;
+        }
+
+        return $orderArray;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function extractProducts(OrderEntity $order): array
+    {
+        if (!method_exists($order, 'getLineItems')) {
+            return array();
+        }
+        $lineItems = $order->getLineItems();
+        if (!is_iterable($lineItems)) {
+            return array();
+        }
+
+        $products = array();
+        foreach ($lineItems as $lineItem) {
+            if (!is_object($lineItem)) {
+                continue;
+            }
+            $type = method_exists($lineItem, 'getType') ? (string) $lineItem->getType() : '';
+            if ($type !== 'product') {
+                continue;
+            }
+            $parentId = method_exists($lineItem, 'getParentId') ? $lineItem->getParentId() : null;
+            if ($parentId !== null && $parentId !== '') {
+                continue;
+            }
+
+            $payload = method_exists($lineItem, 'getPayload') ? $lineItem->getPayload() : null;
+            $payload = is_array($payload) ? $payload : array();
+
+            $imageUrl = null;
+            if (method_exists($lineItem, 'getCover')) {
+                $cover = $lineItem->getCover();
+                if (is_object($cover) && method_exists($cover, 'getUrl')) {
+                    $url = $cover->getUrl();
+                    if (is_string($url) && $url !== '') {
+                        $imageUrl = $url;
+                    }
+                }
+            }
+
+            $unitAmount = null;
+            if (method_exists($lineItem, 'getPrice')) {
+                $price = $lineItem->getPrice();
+                if (is_object($price) && method_exists($price, 'getUnitPrice')) {
+                    $unitAmount = $price->getUnitPrice();
+                }
+            }
+            if ($unitAmount === null && method_exists($lineItem, 'getUnitPrice')) {
+                $unitAmount = $lineItem->getUnitPrice();
+            }
+
+            $products[] = CheckoutProcessor::buildProductCandidate(
+                method_exists($lineItem, 'getLabel') ? $lineItem->getLabel() : null,
+                method_exists($lineItem, 'getDescription') ? $lineItem->getDescription() : null,
+                $imageUrl,
+                method_exists($lineItem, 'getQuantity') ? $lineItem->getQuantity() : null,
+                $unitAmount,
+                $payload
+            );
+        }
+
+        return $products;
     }
 
     private function currencyIso(OrderEntity $order): string

@@ -8,6 +8,7 @@ use Paymos\Client;
 use Paymos\Exception\ApiException;
 use Paymos\Exception\NotFoundException;
 use Paymos\Plugin\AmountGuard;
+use Paymos\Plugin\InvoicePresentation;
 use Paymos\Plugin\InvoiceRenewal;
 use Paymos\Plugin\InvoiceReplacement;
 use Paymos\Plugin\InvoiceReplacementBlockedException;
@@ -278,7 +279,138 @@ final class CheckoutProcessor
             $payload['client_id'] = $clientId;
         }
 
+        $products = $this->normalizeProducts($order);
+        if ($products !== null) {
+            $payload['products'] = $products;
+        }
+
         return $payload;
+    }
+
+    /**
+     * Build a normalized product candidate from Shopware line-item attributes.
+     *
+     * @param mixed $title
+     * @param mixed $description
+     * @param mixed $imageUrl
+     * @param mixed $quantity
+     * @param mixed $unitAmount
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    public static function buildProductCandidate($title, $description, $imageUrl, $quantity, $unitAmount, array $payload = array())
+    {
+        $resolvedTitle = is_string($title) ? self::appendVariationOptions($title, $payload) : null;
+        if ($imageUrl === null && isset($payload['image_url']) && is_string($payload['image_url'])) {
+            $imageUrl = $payload['image_url'];
+        }
+
+        return array(
+            'title' => $resolvedTitle,
+            'description' => is_string($description) ? $description : null,
+            'image_url' => is_string($imageUrl) ? $imageUrl : null,
+            'quantity' => $quantity,
+            'unit_amount' => $unitAmount,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private static function appendVariationOptions($title, array $payload)
+    {
+        if (trim($title) === '' || !isset($payload['options']) || !is_array($payload['options'])) {
+            return $title;
+        }
+
+        $suffixes = array();
+        foreach ($payload['options'] as $option) {
+            if (!is_array($option) || !isset($option['option']) || !is_scalar($option['option'])) {
+                continue;
+            }
+            $val = trim((string) $option['option']);
+            if ($val !== '' && stripos($title, $val) === false && !in_array($val, $suffixes, true)) {
+                $suffixes[] = $val;
+            }
+        }
+
+        return $suffixes === array() ? $title : $title . ' · ' . implode(' · ', $suffixes);
+    }
+
+    /**
+     * @param array<string, mixed> $order
+     * @return array<int, array<string, mixed>>|null
+     */
+    private function normalizeProducts(array $order)
+    {
+        if (!isset($order['products']) || !is_iterable($order['products'])) {
+            return null;
+        }
+        if (!class_exists(InvoicePresentation::class)
+            || !method_exists(InvoicePresentation::class, 'normalizeProducts')
+        ) {
+            return null;
+        }
+
+        $candidates = array();
+        foreach ($order['products'] as $candidate) {
+            if (!is_array($candidate)) {
+                return null;
+            }
+            $candidates[] = $this->prepareProductCandidate($candidate);
+        }
+
+        return InvoicePresentation::normalizeProducts($candidates);
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     * @return array<string, mixed>
+     */
+    private function prepareProductCandidate(array $candidate)
+    {
+        return array(
+            'title' => isset($candidate['title']) && is_string($candidate['title'])
+                ? $candidate['title']
+                : null,
+            'description' => isset($candidate['description']) && is_string($candidate['description'])
+                ? $candidate['description']
+                : null,
+            'image_url' => isset($candidate['image_url']) && is_string($candidate['image_url'])
+                ? $candidate['image_url']
+                : null,
+            'quantity' => array_key_exists('quantity', $candidate) ? $candidate['quantity'] : null,
+            'unit_amount' => array_key_exists('unit_amount', $candidate)
+                ? $this->normalizeUnitAmountInput($candidate['unit_amount'])
+                : null,
+        );
+    }
+
+    /**
+     * @param mixed $unitAmount
+     * @return string|null
+     */
+    private function normalizeUnitAmountInput($unitAmount)
+    {
+        if (is_string($unitAmount)) {
+            return $unitAmount;
+        }
+        if (is_int($unitAmount)) {
+            return (string) $unitAmount;
+        }
+        if (is_float($unitAmount) && is_finite($unitAmount)) {
+            $str = (string) $unitAmount;
+            if (stripos($str, 'e') === false) {
+                return $str;
+            }
+            if (abs($unitAmount) < 1.0) {
+                $formatted = rtrim(rtrim(sprintf('%.18F', $unitAmount), '0'), '.');
+                return $formatted === '-0' ? '0' : $formatted;
+            }
+            return number_format($unitAmount, 0, '.', '');
+        }
+
+        return null;
     }
 
     /**

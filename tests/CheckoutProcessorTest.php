@@ -493,3 +493,239 @@ function test_sw_checkout_second_transaction_of_an_order_never_rebinds_the_first
     assertSameValue(null, $store->findByTransactionId('txn_2'), 'the new transaction gets no binding.');
     assertSameValue('txn_1', (string) $store->findByExternalOrderId('10001_0')['transaction_id'], 'the first binding is unchanged.');
 }
+
+function test_sw_checkout_sends_single_product_and_omits_optional_fields()
+{
+    sw_write_generated_config();
+
+    $store = new InMemoryInvoiceStore();
+    $invoices = new FakePaymosInvoices();
+    $processor = new CheckoutProcessor($store, static function () use ($invoices) {
+        return new FakePaymosClient($invoices);
+    });
+
+    $processor->start(sw_order(array(
+        'amount' => '47.00',
+        'products' => array(
+            array(
+                'title' => '<b>Canvas</b> · Blue',
+                'description' => '<p>Line 1</p><p>Line 2</p>',
+                'image_url' => 'https://shop.example/media/canvas.webp',
+                'quantity' => 2,
+                'unit_amount' => '24.50',
+            ),
+        ),
+    )), sw_settings());
+
+    $payload = $invoices->payloads[0];
+    assertSameValue('47', $payload['amount'], 'Native grand total must remain intact.');
+    assertSameValue(
+        array(
+            array(
+                'title' => 'Canvas · Blue',
+                'quantity' => 2,
+                'unit_amount' => '24.50',
+                'description' => "Line 1\nLine 2",
+                'image_url' => 'https://shop.example/media/canvas.webp',
+            ),
+        ),
+        $payload['products'],
+        'Single valid product is normalized and included.'
+    );
+
+    $minimalStore = new InMemoryInvoiceStore();
+    $minimalInvoices = new FakePaymosInvoices();
+    $minimalProcessor = new CheckoutProcessor($minimalStore, static function () use ($minimalInvoices) {
+        return new FakePaymosClient($minimalInvoices);
+    });
+    $minimalProcessor->start(sw_order(array(
+        'transaction_id' => 'txn_min',
+        'order_number' => '10002',
+        'amount' => '12.00',
+        'products' => array(
+            array(
+                'title' => 'Minimal Item',
+                'description' => '&nbsp;',
+                'image_url' => 'http://shop.example/not-https.png',
+                'quantity' => '1',
+                'unit_amount' => 12.0,
+            ),
+        ),
+    )), sw_settings());
+
+    assertSameValue(
+        array(
+            array(
+                'title' => 'Minimal Item',
+                'quantity' => 1,
+                'unit_amount' => '12',
+            ),
+        ),
+        $minimalInvoices->payloads[0]['products'],
+        'Blank description and non-HTTPS image_url are omitted without failing the product.'
+    );
+}
+
+function test_sw_checkout_sends_cart_and_falls_back_all_or_nothing()
+{
+    sw_write_generated_config();
+
+    $store = new InMemoryInvoiceStore();
+    $invoices = new FakePaymosInvoices();
+    $processor = new CheckoutProcessor($store, static function () use ($invoices) {
+        return new FakePaymosClient($invoices);
+    });
+
+    $processor->start(sw_order(array(
+        'amount' => '42.50',
+        'products' => array(
+            array(
+                'title' => 'Canvas',
+                'description' => 'Giclée',
+                'image_url' => 'https://shop.example/canvas.png',
+                'quantity' => 2,
+                'unit_amount' => 15.0,
+            ),
+            array(
+                'title' => 'Notebook',
+                'description' => '',
+                'image_url' => null,
+                'quantity' => 1,
+                'unit_amount' => 12.5,
+            ),
+        ),
+    )), sw_settings());
+
+    $payload = $invoices->payloads[0];
+    assertSameValue('42.5', $payload['amount'], 'Grand total stays 42.5.');
+    assertSameValue(
+        array(
+            array(
+                'title' => 'Canvas',
+                'quantity' => 2,
+                'unit_amount' => '15',
+                'description' => 'Giclée',
+                'image_url' => 'https://shop.example/canvas.png',
+            ),
+            array(
+                'title' => 'Notebook',
+                'quantity' => 1,
+                'unit_amount' => '12.5',
+            ),
+        ),
+        $payload['products'],
+        'Multi-item cart preserves all valid products.'
+    );
+
+    $fifty = array();
+    for ($i = 1; $i <= 50; $i++) {
+        $fifty[] = array('title' => 'Item ' . $i, 'quantity' => 1, 'unit_amount' => '1.00');
+    }
+    $fiftyInvoices = new FakePaymosInvoices();
+    (new CheckoutProcessor(new InMemoryInvoiceStore(), static function () use ($fiftyInvoices) {
+        return new FakePaymosClient($fiftyInvoices);
+    }))->start(sw_order(array('transaction_id' => 'txn_50', 'order_number' => '10050', 'amount' => '50.00', 'products' => $fifty)), sw_settings());
+    assertSameValue(50, count($fiftyInvoices->payloads[0]['products']), 'Exactly 50 products must be sent.');
+
+    $fiftyOne = $fifty;
+    $fiftyOne[] = array('title' => 'Item 51', 'quantity' => 1, 'unit_amount' => '1.00');
+
+    $fallbackCases = array(
+        'empty' => array(),
+        'over_50' => $fiftyOne,
+        'fractional_qty' => array(
+            array('title' => 'Shirt', 'quantity' => 1, 'unit_amount' => '20.00'),
+            array('title' => 'Fabric', 'quantity' => 1.5, 'unit_amount' => '10.00'),
+        ),
+        'empty_title' => array(
+            array('title' => 'Shirt', 'quantity' => 1, 'unit_amount' => '20.00'),
+            array('title' => '   ', 'quantity' => 1, 'unit_amount' => '10.00'),
+        ),
+        'negative_price' => array(
+            array('title' => 'Shirt', 'quantity' => 1, 'unit_amount' => '20.00'),
+            array('title' => 'Discount', 'quantity' => 1, 'unit_amount' => -5.0),
+        ),
+    );
+
+    foreach ($fallbackCases as $label => $badProducts) {
+        $fbInvoices = new FakePaymosInvoices();
+        (new CheckoutProcessor(new InMemoryInvoiceStore(), static function () use ($fbInvoices) {
+            return new FakePaymosClient($fbInvoices);
+        }))->start(sw_order(array('transaction_id' => 'txn_fb_' . $label, 'order_number' => '109' . $label, 'amount' => '30.00', 'products' => $badProducts)), sw_settings());
+
+        assertFalseValue(array_key_exists('products', $fbInvoices->payloads[0]), $label . ': falls back all-or-nothing to amount-only.');
+        assertSameValue('30', $fbInvoices->payloads[0]['amount'], $label . ': grand total remains intact.');
+    }
+}
+
+function test_sw_checkout_retry_ignores_presentation_metadata_differences()
+{
+    sw_write_generated_config();
+
+    $store = new InMemoryInvoiceStore();
+    $invoices = new FakePaymosInvoices();
+    $processor = new CheckoutProcessor($store, static function () use ($invoices) {
+        return new FakePaymosClient($invoices);
+    });
+
+    $first = $processor->start(sw_order(array(
+        'products' => array(
+            array(
+                'title' => 'Studio Pro',
+                'description' => 'Initial description',
+                'image_url' => 'https://shop.example/a.png',
+                'quantity' => 2,
+                'unit_amount' => '50.00',
+            ),
+        ),
+    )), sw_settings());
+
+    $second = $processor->start(sw_order(array(
+        'products' => array(
+            array(
+                'title' => 'Studio Pro Changed',
+                'description' => 'Updated description',
+                'image_url' => null,
+                'quantity' => 1,
+                'unit_amount' => '100.00',
+            ),
+        ),
+    )), sw_settings());
+
+    assertSameValue('0', $first['reused'], 'First call creates the invoice.');
+    assertSameValue('1', $second['reused'], 'Changed presentation metadata with same money reuses the invoice.');
+    assertSameValue(array('create', 'get inv_123'), $invoices->calls, 'No cancel or second create on presentation change.');
+    assertSameValue(1, count($invoices->payloads), 'Only one invoice create request is made.');
+
+    // Terminal replay with products[] still leaves snapshot applicable for webhook/reconciler.
+    $replayStore = new InMemoryInvoiceStore();
+    $replayInvoices = new FakePaymosInvoices(array(
+        'invoice_id' => 'inv_123',
+        'payment_url' => 'https://pay.paymos.test/inv_123',
+        'status' => 'paid',
+    ));
+    (new CheckoutProcessor($replayStore, static function () use ($replayInvoices) {
+        return new FakePaymosClient($replayInvoices);
+    }))->start(sw_order(array(
+        'products' => array(
+            array('title' => 'Studio Pro', 'quantity' => 2, 'unit_amount' => '50.00'),
+        ),
+    )), sw_settings());
+
+    $gateway = new FakeShopwareGateway(array('txn_1' => 'open'));
+    $events = new \Paymos\Webhook\InMemoryEventStore();
+    $live = array(
+        'invoice_id' => 'inv_123',
+        'project_id' => 'prj_123',
+        'status' => 'paid',
+        'is_test' => true,
+        'order' => array('external_id' => '10001_0', 'amount' => '100', 'currency' => 'USD'),
+    );
+    $webhook = new \PaymosPayments\Service\WebhookProcessor($gateway, $replayStore, $events, static function () use ($live) {
+        return sw_reverse_client($live, time());
+    });
+    $body = json_encode(sw_invoice_event('evt_products_replay', 'invoice.paid', 'paid'));
+    $sig = sw_signed_header('whsec_sandbox', $body, 1709000000);
+    assertSameValue(200, $webhook->handle($body, $sig, sw_settings(), 1709000000)->statusCode(), 'Webhook marks paid after lost create with products[].');
+    assertSameValue('paid', $gateway->states['txn_1'], 'Transaction becomes paid.');
+}
