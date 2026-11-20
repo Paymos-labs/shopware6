@@ -375,16 +375,7 @@ function sw_test_line_item(array $spec)
 
         public function getCover()
         {
-            if (!isset($this->spec['cover_url'])) {
-                return null;
-            }
-            $url = $this->spec['cover_url'];
-
-            return new class($url) {
-                private $url;
-                public function __construct($url) { $this->url = $url; }
-                public function getUrl() { return $this->url; }
-            };
+            throw new \LogicException('Product covers must not be read.');
         }
 
         public function getPayload()
@@ -407,11 +398,7 @@ function sw_test_handler_line_items($era, array $specs)
 
     $rows = array();
     foreach ($specs as $spec) {
-        $row = $spec;
-        if (isset($spec['cover_url'])) {
-            $row['image_url'] = $spec['cover_url'];
-        }
-        $rows[] = $row;
+        $rows[] = $spec;
     }
 
     return $rows;
@@ -432,7 +419,6 @@ function test_sw_payment_handler_sends_single_product_across_both_eras()
                     'type' => 'product',
                     'label' => 'Canvas',
                     'description' => '<p>Giclée print</p>',
-                    'cover_url' => 'https://shop.example/media/canvas.webp',
                     'quantity' => 2,
                     'unit_price' => 24.5,
                     'payload' => array(
@@ -445,6 +431,7 @@ function test_sw_payment_handler_sends_single_product_across_both_eras()
         $redirect = $handler['pay']();
         assertSameValue('https://pay.paymos.test/inv_123', $redirect->getTargetUrl(), $era . ': redirect succeeds.');
         assertSameValue('47', $invoices->payloads[0]['amount'], $era . ': native total preserved.');
+        assertFalseValue(array_key_exists('image_url', $invoices->payloads[0]['products'][0]), $era . ': product images must be absent.');
         assertSameValue(
             array(
                 array(
@@ -452,7 +439,6 @@ function test_sw_payment_handler_sends_single_product_across_both_eras()
                     'quantity' => 2,
                     'unit_amount' => '24.5',
                     'description' => 'Giclée print',
-                    'image_url' => 'https://shop.example/media/canvas.webp',
                 ),
             ),
             $invoices->payloads[0]['products'],
@@ -476,7 +462,6 @@ function test_sw_payment_handler_filters_non_product_lines_and_falls_back_all_or
                     'type' => 'product',
                     'label' => 'Canvas',
                     'description' => 'Print',
-                    'cover_url' => 'https://shop.example/canvas.png',
                     'quantity' => 2,
                     'unit_price' => 15.0,
                 ),
@@ -509,7 +494,6 @@ function test_sw_payment_handler_filters_non_product_lines_and_falls_back_all_or
                     'type' => 'product',
                     'label' => 'Notebook',
                     'description' => '&nbsp;',
-                    'cover_url' => 'http://shop.example/insecure.png',
                     'quantity' => 1,
                     'unit_price' => 12.5,
                 ),
@@ -526,7 +510,6 @@ function test_sw_payment_handler_filters_non_product_lines_and_falls_back_all_or
                     'quantity' => 2,
                     'unit_amount' => '15',
                     'description' => 'Print',
-                    'image_url' => 'https://shop.example/canvas.png',
                 ),
                 array(
                     'title' => 'Notebook',

@@ -217,17 +217,6 @@ final class PaymosPaymentHandler implements AsynchronousPaymentHandlerInterface,
             $payload = method_exists($lineItem, 'getPayload') ? $lineItem->getPayload() : null;
             $payload = is_array($payload) ? $payload : array();
 
-            $imageUrl = null;
-            if (method_exists($lineItem, 'getCover')) {
-                $cover = $lineItem->getCover();
-                if (is_object($cover) && method_exists($cover, 'getUrl')) {
-                    $url = $cover->getUrl();
-                    if (is_string($url) && $url !== '') {
-                        $imageUrl = $url;
-                    }
-                }
-            }
-
             $unitAmount = null;
             if (method_exists($lineItem, 'getPrice')) {
                 $price = $lineItem->getPrice();
@@ -242,7 +231,6 @@ final class PaymosPaymentHandler implements AsynchronousPaymentHandlerInterface,
             $products[] = CheckoutProcessor::buildProductCandidate(
                 method_exists($lineItem, 'getLabel') ? $lineItem->getLabel() : null,
                 method_exists($lineItem, 'getDescription') ? $lineItem->getDescription() : null,
-                $imageUrl,
                 method_exists($lineItem, 'getQuantity') ? $lineItem->getQuantity() : null,
                 $unitAmount,
                 $payload

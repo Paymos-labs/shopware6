@@ -210,7 +210,6 @@ final class PaymosPaymentHandler67 extends AbstractPaymentHandler
             $products[] = CheckoutProcessor::buildProductCandidate(
                 $title,
                 array_key_exists('description', $item) ? $item['description'] : null,
-                array_key_exists('image_url', $item) ? $item['image_url'] : null,
                 array_key_exists('quantity', $item) ? $item['quantity'] : null,
                 $unitAmount,
                 $payload

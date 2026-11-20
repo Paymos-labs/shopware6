@@ -292,23 +292,17 @@ final class CheckoutProcessor
      *
      * @param mixed $title
      * @param mixed $description
-     * @param mixed $imageUrl
      * @param mixed $quantity
      * @param mixed $unitAmount
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
      */
-    public static function buildProductCandidate($title, $description, $imageUrl, $quantity, $unitAmount, array $payload = array())
+    public static function buildProductCandidate($title, $description, $quantity, $unitAmount, array $payload = array())
     {
         $resolvedTitle = is_string($title) ? self::appendVariationOptions($title, $payload) : null;
-        if ($imageUrl === null && isset($payload['image_url']) && is_string($payload['image_url'])) {
-            $imageUrl = $payload['image_url'];
-        }
-
         return array(
             'title' => $resolvedTitle,
             'description' => is_string($description) ? $description : null,
-            'image_url' => is_string($imageUrl) ? $imageUrl : null,
             'quantity' => $quantity,
             'unit_amount' => $unitAmount,
         );
@@ -375,9 +369,6 @@ final class CheckoutProcessor
                 : null,
             'description' => isset($candidate['description']) && is_string($candidate['description'])
                 ? $candidate['description']
-                : null,
-            'image_url' => isset($candidate['image_url']) && is_string($candidate['image_url'])
-                ? $candidate['image_url']
                 : null,
             'quantity' => array_key_exists('quantity', $candidate) ? $candidate['quantity'] : null,
             'unit_amount' => array_key_exists('unit_amount', $candidate)

@@ -209,7 +209,6 @@ final class ShopwareGateway implements ShopwareGatewayInterface
             $products[] = CheckoutProcessor::buildProductCandidate(
                 isset($line['label']) ? $line['label'] : null,
                 isset($line['description']) ? $line['description'] : null,
-                null,
                 array_key_exists('quantity', $line) ? $line['quantity'] : null,
                 $unitAmount,
                 $payload

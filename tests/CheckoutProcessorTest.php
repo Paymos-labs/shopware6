@@ -510,7 +510,6 @@ function test_sw_checkout_sends_single_product_and_omits_optional_fields()
             array(
                 'title' => '<b>Canvas</b> · Blue',
                 'description' => '<p>Line 1</p><p>Line 2</p>',
-                'image_url' => 'https://shop.example/media/canvas.webp',
                 'quantity' => 2,
                 'unit_amount' => '24.50',
             ),
@@ -518,6 +517,7 @@ function test_sw_checkout_sends_single_product_and_omits_optional_fields()
     )), sw_settings());
 
     $payload = $invoices->payloads[0];
+    assertFalseValue(array_key_exists('image_url', $payload['products'][0]), 'Product images must be absent.');
     assertSameValue('47', $payload['amount'], 'Native grand total must remain intact.');
     assertSameValue(
         array(
@@ -526,7 +526,6 @@ function test_sw_checkout_sends_single_product_and_omits_optional_fields()
                 'quantity' => 2,
                 'unit_amount' => '24.50',
                 'description' => "Line 1\nLine 2",
-                'image_url' => 'https://shop.example/media/canvas.webp',
             ),
         ),
         $payload['products'],
@@ -546,7 +545,6 @@ function test_sw_checkout_sends_single_product_and_omits_optional_fields()
             array(
                 'title' => 'Minimal Item',
                 'description' => '&nbsp;',
-                'image_url' => 'http://shop.example/not-https.png',
                 'quantity' => '1',
                 'unit_amount' => 12.0,
             ),
@@ -562,8 +560,75 @@ function test_sw_checkout_sends_single_product_and_omits_optional_fields()
             ),
         ),
         $minimalInvoices->payloads[0]['products'],
-        'Blank description and non-HTTPS image_url are omitted without failing the product.'
+        'Blank description is omitted without failing the product.'
     );
+}
+
+function test_sw_gateway_products_keep_quantity_price_and_variations_without_image_argument()
+{
+    sw_write_generated_config();
+    $connection = new class {
+        public $queries = array();
+
+        public function fetchAssociative($sql, array $params)
+        {
+            $this->queries[] = $sql;
+            return array(
+                'order_number' => '10001', 'amount' => '{"totalPrice":47.5}',
+                'currency' => 'USD', 'customer_id' => 'customer_1', 'sales_channel_id' => 'channel_1',
+            );
+        }
+
+        public function fetchAllAssociative($sql, array $params)
+        {
+            $this->queries[] = $sql;
+            return array(
+                array(
+                    'type' => 'product', 'parent_id' => null, 'label' => 'Canvas',
+                    'description' => '<p>Giclée print</p>', 'quantity' => 2,
+                    'price' => '{"unitPrice":"24.50"}',
+                    'payload' => '{"options":[{"group":"Color","option":"Blue"}]}',
+                ),
+                array(
+                    'type' => 'promotion', 'parent_id' => null, 'label' => 'Discount',
+                    'quantity' => 1, 'unit_price' => -5,
+                ),
+                array(
+                    'type' => 'product', 'parent_id' => 'parent_1', 'label' => 'Nested option',
+                    'quantity' => 1, 'unit_price' => 0,
+                ),
+                array(
+                    'type' => 'product', 'parent_id' => null, 'label' => 'Free Support',
+                    'description' => null, 'quantity' => 1, 'unit_price' => '0.00', 'payload' => '{}',
+                ),
+            );
+        }
+    };
+    // This public read uses only DBAL; state-transition dependencies are intentionally unused.
+    $gatewayClass = new ReflectionClass(\PaymosPayments\Service\ShopwareGateway::class);
+    $gateway = $gatewayClass->newInstanceWithoutConstructor();
+    $connectionProperty = $gatewayClass->getProperty('connection');
+    $connectionProperty->setValue($gateway, $connection);
+    $context = $gateway->orderContext('txn_1');
+    assertSameValue('47.5', $context['amount'], 'Gateway keeps the native order total.');
+
+    $invoices = new FakePaymosInvoices();
+    $processor = new CheckoutProcessor(new InMemoryInvoiceStore(), static function () use ($invoices) {
+        return new FakePaymosClient($invoices);
+    });
+    $processor->start(sw_order($context), sw_settings());
+    assertSameValue('47.5', $invoices->payloads[0]['amount'], 'Grand total is independent from product prices.');
+    assertSameValue(
+        array(
+            array('title' => 'Canvas · Blue', 'quantity' => 2, 'unit_amount' => '24.50', 'description' => 'Giclée print'),
+            array('title' => 'Free Support', 'quantity' => 1, 'unit_amount' => '0.00'),
+        ),
+        $invoices->payloads[0]['products'],
+        'Gateway passes quantity, exact price and variation payload in the correct argument positions.'
+    );
+    foreach ($connection->queries as $query) {
+        assertFalseValue(stripos($query, 'media') !== false || stripos($query, 'cover') !== false, 'Gateway does not query product images.');
+    }
 }
 
 function test_sw_checkout_sends_cart_and_falls_back_all_or_nothing()
@@ -582,14 +647,12 @@ function test_sw_checkout_sends_cart_and_falls_back_all_or_nothing()
             array(
                 'title' => 'Canvas',
                 'description' => 'Giclée',
-                'image_url' => 'https://shop.example/canvas.png',
                 'quantity' => 2,
                 'unit_amount' => 15.0,
             ),
             array(
                 'title' => 'Notebook',
                 'description' => '',
-                'image_url' => null,
                 'quantity' => 1,
                 'unit_amount' => 12.5,
             ),
@@ -605,7 +668,6 @@ function test_sw_checkout_sends_cart_and_falls_back_all_or_nothing()
                 'quantity' => 2,
                 'unit_amount' => '15',
                 'description' => 'Giclée',
-                'image_url' => 'https://shop.example/canvas.png',
             ),
             array(
                 'title' => 'Notebook',
@@ -673,7 +735,6 @@ function test_sw_checkout_retry_ignores_presentation_metadata_differences()
             array(
                 'title' => 'Studio Pro',
                 'description' => 'Initial description',
-                'image_url' => 'https://shop.example/a.png',
                 'quantity' => 2,
                 'unit_amount' => '50.00',
             ),
@@ -685,7 +746,6 @@ function test_sw_checkout_retry_ignores_presentation_metadata_differences()
             array(
                 'title' => 'Studio Pro Changed',
                 'description' => 'Updated description',
-                'image_url' => null,
                 'quantity' => 1,
                 'unit_amount' => '100.00',
             ),
