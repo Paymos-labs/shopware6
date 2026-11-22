@@ -7,6 +7,7 @@ namespace PaymosPayments\Service;
 use Doctrine\DBAL\Connection;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStateHandler;
+use Shopware\Core\Defaults;
 use Shopware\Core\Framework\Context;
 
 /**
@@ -45,14 +46,19 @@ final class ShopwareGateway implements ShopwareGatewayInterface
 
     public function paymentReview($transactionId, $invoiceId, $status, $reason)
     {
-        // Preserve unrelated custom fields and bind the update to the exact order version.
+        // Preserve unrelated custom fields and bind the update to the exact live order version.
         $this->connection->executeStatement(
             'UPDATE `order` AS o INNER JOIN `order_transaction` AS t '
             . 'ON o.id = t.order_id AND o.version_id = t.order_version_id '
             . "SET o.custom_fields = JSON_SET(COALESCE(o.custom_fields, JSON_OBJECT()), "
             . "'$.paymos_invoice_status', :observation, '$.paymos_payment_review', :reason) "
-            . 'WHERE t.id = UNHEX(:id)',
-            array('id' => (string) $transactionId, 'observation' => $invoiceId . ': ' . $status, 'reason' => (string) $reason)
+            . 'WHERE t.id = UNHEX(:id) AND t.version_id = UNHEX(:liveVersion)',
+            array(
+                'id' => (string) $transactionId,
+                'liveVersion' => Defaults::LIVE_VERSION,
+                'observation' => $invoiceId . ': ' . $status,
+                'reason' => (string) $reason,
+            )
         );
     }
 
@@ -77,8 +83,11 @@ final class ShopwareGateway implements ShopwareGatewayInterface
             'SELECT LOWER(`state`.`technical_name`) '
             . 'FROM `order_transaction` AS `txn` '
             . 'INNER JOIN `state_machine_state` AS `state` ON `state`.`id` = `txn`.`state_id` '
-            . 'WHERE `txn`.`id` = UNHEX(:id) LIMIT 1',
-            array('id' => (string) $transactionId)
+            . 'WHERE `txn`.`id` = UNHEX(:id) AND `txn`.`version_id` = UNHEX(:liveVersion) LIMIT 1',
+            array(
+                'id' => (string) $transactionId,
+                'liveVersion' => Defaults::LIVE_VERSION,
+            )
         );
 
         return is_string($state) ? $state : '';
@@ -89,8 +98,9 @@ final class ShopwareGateway implements ShopwareGatewayInterface
      *
      * Shopware 6.7 hands the payment handler only an order-transaction id — the
      * order and the sales-channel context that older versions passed in are gone,
-     * so the plugin has to load them itself. Order versioning: every join carries
-     * version_id so the live row is matched rather than a draft.
+     * so the plugin has to load them itself. Order versioning: every query and join
+     * pins Defaults::LIVE_VERSION so a draft order version can never override or
+     * duplicate the live order.
      *
      * @param string $transactionId
      * @return array<string, mixed>|null null when the transaction is unknown
@@ -109,8 +119,11 @@ final class ShopwareGateway implements ShopwareGatewayInterface
             . 'INNER JOIN `currency` AS `cur` ON `cur`.`id` = `o`.`currency_id` '
             . 'LEFT JOIN `order_customer` AS `oc` '
             . '  ON `oc`.`order_id` = `o`.`id` AND `oc`.`order_version_id` = `o`.`version_id` '
-            . 'WHERE `txn`.`id` = UNHEX(:id) LIMIT 1',
-            array('id' => (string) $transactionId)
+            . 'WHERE `txn`.`id` = UNHEX(:id) AND `txn`.`version_id` = UNHEX(:liveVersion) LIMIT 1',
+            array(
+                'id' => (string) $transactionId,
+                'liveVersion' => Defaults::LIVE_VERSION,
+            )
         );
 
         if (!is_array($row) || !isset($row['order_number'])) {
@@ -167,8 +180,13 @@ final class ShopwareGateway implements ShopwareGatewayInterface
             . 'INNER JOIN `order_transaction` AS `txn` '
             . '  ON `txn`.`order_id` = `li`.`order_id` AND `txn`.`order_version_id` = `li`.`order_version_id` '
             . 'WHERE `txn`.`id` = UNHEX(:id) '
+            . '  AND `txn`.`version_id` = UNHEX(:liveVersion) '
+            . '  AND `li`.`version_id` = `txn`.`version_id` '
             . 'ORDER BY `li`.`position` ASC, `li`.`id` ASC',
-            array('id' => (string) $transactionId)
+            array(
+                'id' => (string) $transactionId,
+                'liveVersion' => Defaults::LIVE_VERSION,
+            )
         );
 
         if (!is_array($rows)) {
@@ -238,11 +256,13 @@ final class ShopwareGateway implements ShopwareGatewayInterface
             . 'INNER JOIN `payment_method` AS `pm` ON `pm`.`id` = `txn`.`payment_method_id` '
             . 'INNER JOIN `state_machine_state` AS `state` ON `state`.`id` = `txn`.`state_id` '
             . 'WHERE `oc`.`customer_id` = UNHEX(:customerId) '
+            . '  AND `txn`.`version_id` = UNHEX(:liveVersion) '
             . '  AND `pm`.`technical_name` = :technicalName '
             . "  AND LOWER(`state`.`technical_name`) NOT IN ('paid', 'refunded', 'refunded_partially', 'cancelled', 'failed') "
             . 'ORDER BY `o`.`created_at` DESC LIMIT 1',
             array(
                 'customerId' => $customerId,
+                'liveVersion' => Defaults::LIVE_VERSION,
                 'technicalName' => (string) $technicalName,
             )
         );

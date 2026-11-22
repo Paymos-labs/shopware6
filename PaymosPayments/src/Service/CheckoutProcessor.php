@@ -328,7 +328,17 @@ final class CheckoutProcessor
             }
         }
 
-        return $suffixes === array() ? $title : $title . ' · ' . implode(' · ', $suffixes);
+        if ($suffixes === array()) {
+            return $title;
+        }
+
+        $withOptions = $title . ' · ' . implode(' · ', $suffixes);
+        $chars = preg_split('//u', $withOptions, 201, PREG_SPLIT_NO_EMPTY);
+        if (is_array($chars) && count($chars) <= 200) {
+            return $withOptions;
+        }
+
+        return $title;
     }
 
     /**

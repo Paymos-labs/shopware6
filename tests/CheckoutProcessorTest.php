@@ -789,3 +789,171 @@ function test_sw_checkout_retry_ignores_presentation_metadata_differences()
     assertSameValue(200, $webhook->handle($body, $sig, sw_settings(), 1709000000)->statusCode(), 'Webhook marks paid after lost create with products[].');
     assertSameValue('paid', $gateway->states['txn_1'], 'Transaction becomes paid.');
 }
+
+function test_sw_gateway_filters_live_version_strictly_when_draft_order_exists()
+{
+    // BUG-1435: Shopware 6.7 order edits create draft versions with the same order_transaction id.
+    $liveVersion = \Shopware\Core\Defaults::LIVE_VERSION;
+    $draftVersion = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    $connection = new class ($liveVersion, $draftVersion) {
+        public $liveVersion;
+        public $draftVersion;
+        public $calls = array();
+
+        public function __construct(string $liveVersion, string $draftVersion)
+        {
+            $this->liveVersion = $liveVersion;
+            $this->draftVersion = $draftVersion;
+        }
+
+        public function fetchOne($sql, array $params = array())
+        {
+            $this->calls[] = array('method' => 'fetchOne', 'sql' => $sql, 'params' => $params);
+            $rows = array(
+                array('version_id' => $this->draftVersion, 'state' => 'cancelled'),
+                array('version_id' => $this->liveVersion, 'state' => 'open'),
+            );
+            $filterLive = stripos($sql, '`txn`.`version_id` = UNHEX(:liveVersion)') !== false
+                && ($params['liveVersion'] ?? null) === $this->liveVersion;
+            foreach ($rows as $row) {
+                if (!$filterLive || $row['version_id'] === $this->liveVersion) {
+                    return $row['state'];
+                }
+            }
+            return false;
+        }
+
+        public function fetchAssociative($sql, array $params = array())
+        {
+            $this->calls[] = array('method' => 'fetchAssociative', 'sql' => $sql, 'params' => $params);
+            $rows = array(
+                array(
+                    'version_id' => $this->draftVersion,
+                    'order_number' => '10001',
+                    'amount' => '{"totalPrice":999.99}',
+                    'currency' => 'EUR',
+                    'customer_id' => 'draft_customer',
+                    'sales_channel_id' => 'channel_1',
+                ),
+                array(
+                    'version_id' => $this->liveVersion,
+                    'order_number' => '10001',
+                    'amount' => '{"totalPrice":47.5}',
+                    'currency' => 'USD',
+                    'customer_id' => 'live_customer',
+                    'sales_channel_id' => 'channel_1',
+                ),
+            );
+            $filterLive = stripos($sql, '`txn`.`version_id` = UNHEX(:liveVersion)') !== false
+                && ($params['liveVersion'] ?? null) === $this->liveVersion;
+            foreach ($rows as $row) {
+                if (!$filterLive || $row['version_id'] === $this->liveVersion) {
+                    return $row;
+                }
+            }
+            return false;
+        }
+
+        public function fetchAllAssociative($sql, array $params = array())
+        {
+            $this->calls[] = array('method' => 'fetchAllAssociative', 'sql' => $sql, 'params' => $params);
+            $rows = array(
+                array(
+                    'txn_version_id' => $this->draftVersion,
+                    'li_version_id' => $this->draftVersion,
+                    'type' => 'product',
+                    'parent_id' => null,
+                    'label' => 'Draft Item',
+                    'description' => null,
+                    'quantity' => 5,
+                    'price' => '{"unitPrice":"199.99"}',
+                    'payload' => '{}',
+                ),
+                array(
+                    'txn_version_id' => $this->liveVersion,
+                    'li_version_id' => $this->liveVersion,
+                    'type' => 'product',
+                    'parent_id' => null,
+                    'label' => 'Live Item',
+                    'description' => 'Live description',
+                    'quantity' => 2,
+                    'price' => '{"unitPrice":"23.75"}',
+                    'payload' => '{}',
+                ),
+            );
+            // Native MySQL prepared statements (PDO::ATTR_EMULATE_PREPARES = false) throw HY093 if any named
+            // placeholder appears more than once in the same SQL statement.
+            preg_match_all('/:[a-zA-Z_][a-zA-Z0-9_]*/', $sql, $placeholders);
+            assertSameValue(
+                count($placeholders[0]),
+                count(array_unique($placeholders[0])),
+                'orderProducts SQL must not repeat named placeholders (breaks native MySQL prepared statements).'
+            );
+            $filterTxn = stripos($sql, '`txn`.`version_id` = UNHEX(:liveVersion)') !== false
+                && ($params['liveVersion'] ?? null) === $this->liveVersion;
+            $filterLi = stripos($sql, '`li`.`version_id` = `txn`.`version_id`') !== false;
+            $out = array();
+            foreach ($rows as $row) {
+                if ($filterTxn && $row['txn_version_id'] !== $this->liveVersion) {
+                    continue;
+                }
+                if ($filterLi && $row['li_version_id'] !== $row['txn_version_id']) {
+                    continue;
+                }
+                $out[] = $row;
+            }
+            return $out;
+        }
+    };
+
+    $gatewayClass = new ReflectionClass(\PaymosPayments\Service\ShopwareGateway::class);
+    $gateway = $gatewayClass->newInstanceWithoutConstructor();
+    $connectionProperty = $gatewayClass->getProperty('connection');
+    $connectionProperty->setValue($gateway, $connection);
+
+    assertSameValue('open', $gateway->transactionState('txn_1'), 'transactionState must read strictly LIVE_VERSION, not draft.');
+    $context = $gateway->orderContext('txn_1');
+    assertSameValue('47.5', $context['amount'], 'orderContext must return LIVE_VERSION amount, not draft.');
+    assertSameValue('USD', $context['currency'], 'orderContext must return LIVE_VERSION currency, not draft.');
+    assertSameValue('live_customer', $context['customer_id'], 'orderContext must return LIVE_VERSION customer.');
+    assertSameValue(1, count($context['products']), 'orderProducts must return single LIVE_VERSION line item set.');
+    assertSameValue('Live Item', $context['products'][0]['title'], 'orderProducts must exclude draft line items.');
+}
+
+function test_sw_option_suffixes_respect_200_scalar_title_budget()
+{
+    // BUG-1480: appending variation options must not push a valid base title past 200 UTF-8 scalars.
+    sw_write_generated_config();
+    $base195 = str_repeat('Ж', 195);
+    $overflowCandidate = CheckoutProcessor::buildProductCandidate(
+        $base195,
+        null,
+        1,
+        '15.00',
+        array('options' => array(array('group' => 'Color', 'option' => 'Midnight Blue')))
+    );
+    assertSameValue($base195, $overflowCandidate['title'], 'Overflowing options must keep the base title intact.');
+
+    $exactBase = str_repeat('Б', 193); // 193 + ' · ' (3) + 'Blue' (4) = 200 scalars
+    $exactCandidate = CheckoutProcessor::buildProductCandidate(
+        $exactBase,
+        null,
+        1,
+        '15.00',
+        array('options' => array(array('group' => 'Color', 'option' => 'Blue')))
+    );
+    assertSameValue($exactBase . ' · Blue', $exactCandidate['title'], 'Options fitting within 200 UTF-8 scalars are appended.');
+
+    $invoices = new FakePaymosInvoices();
+    (new CheckoutProcessor(new InMemoryInvoiceStore(), static function () use ($invoices) {
+        return new FakePaymosClient($invoices);
+    }))->start(sw_order(array(
+        'amount' => '30.00',
+        'products' => array($overflowCandidate, $exactCandidate),
+    )), sw_settings());
+
+    assertSameValue(2, count($invoices->payloads[0]['products']), 'Cart with long-title variant must keep products[] instead of falling back to amount-only.');
+    assertSameValue($base195, $invoices->payloads[0]['products'][0]['title'], 'First item keeps base title.');
+    assertSameValue($exactBase . ' · Blue', $invoices->payloads[0]['products'][1]['title'], 'Second item keeps 200-scalar variant title.');
+}
