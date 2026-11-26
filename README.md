@@ -1,9 +1,15 @@
 # Paymos for Shopware 6
 
+**English** | [简体中文](README.zh-CN.md) | [Русский](README.ru.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [Türkçe](README.tr.md)
+
 Official Paymos payment plugin for Shopware 6. Installing it adds a single payment method —
 **Pay with crypto (Paymos)** — that hands the buyer to the Paymos hosted checkout, where they choose
 a stablecoin and a network and pay from their own wallet. The order transaction reaches `paid` on a
 signed webhook once the transfer confirms on-chain. The buyer's return to the shop never decides it.
+
+[![Watch: 12 Official CMS Crypto Plugins — 1-Click Connect (Paymos)](https://i.ytimg.com/vi/VMLUGVumYkg/maxresdefault.jpg)](https://www.youtube.com/watch?v=VMLUGVumYkg)
+
+> **Video walkthrough (1:12, subtitles in 6 languages):** [Watch on YouTube](https://www.youtube.com/watch?v=VMLUGVumYkg)
 
 ## Requirements
 
