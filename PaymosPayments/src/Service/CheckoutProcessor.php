@@ -309,6 +309,25 @@ final class CheckoutProcessor
     }
 
     /**
+     * Whether a line item is a product nested under a line item of another
+     * type (Custom Products puts the product under `customized-products`).
+     * The container is not a product and the nested product is skipped as a
+     * child, so a list built from the order would miss the item: the caller
+     * then sends the invoice amount-only (all or nothing).
+     *
+     * @param mixed                 $parentId
+     * @param array<string, string> $typesById type of every line item of the order, by id
+     */
+    public static function isProductInsideContainer(string $type, $parentId, array $typesById): bool
+    {
+        if ($type !== 'product' || !is_string($parentId) || $parentId === '' || !isset($typesById[$parentId])) {
+            return false;
+        }
+
+        return $typesById[$parentId] !== 'product';
+    }
+
+    /**
      * @param array<string, mixed> $payload
      */
     private static function appendVariationOptions($title, array $payload)

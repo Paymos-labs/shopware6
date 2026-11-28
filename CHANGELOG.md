@@ -8,6 +8,14 @@ The public release history also lives at [paymos.io/changelog](https://paymos.io
 
 ## [Unreleased]
 
+## [1.9.9] - 2026-11-28
+
+- fix(shopware6): send nested line items amount-only, re-read accepted refunds
+
+### Fixed
+- **Custom Products item missing from the checkout list (`ShopwareGateway`, `PaymosPaymentHandler`, `CheckoutProcessor`):** A product nested under a line item of another type (Custom Products puts it under `customized-products`) was dropped together with its container, so the buyer saw only the other items. Such an order now goes out amount-only, as any order whose items cannot all be listed.
+- **Accepted refund stuck after a temporary read failure (`RefundIntentStore`):** When the server accepted the refund but the read right after it answered a temporary 401/403/404, the refund stayed in `refund_read_unavailable` for good. The store now keeps the unverified withdrawal id (`RefundCandidateStoreInterface`), so the next check reads it again and records the refund in Shopware.
+
 ## [1.9.8] - 2026-11-27
 
 - chore: rebuild canonical CMS package

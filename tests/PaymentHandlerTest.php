@@ -334,6 +334,11 @@ function sw_test_line_item(array $spec)
             return isset($this->spec['type']) ? $this->spec['type'] : 'product';
         }
 
+        public function getId()
+        {
+            return isset($this->spec['id']) ? $this->spec['id'] : null;
+        }
+
         public function getParentId()
         {
             return isset($this->spec['parent_id']) ? $this->spec['parent_id'] : null;
@@ -445,6 +450,33 @@ function test_sw_payment_handler_sends_single_product_across_both_eras()
             $era . ': single product with variation option is sent.'
         );
     }
+}
+
+/**
+ * CMSP-52: Custom Products (SwagCustomizedProducts) puts the product under a
+ * root `customized-products` line item. The root is not a product and the
+ * product has a parent, so both were skipped and the buyer saw only the plain
+ * mug. A list that cannot hold every bought item goes out amount-only.
+ */
+function test_sw_payment_handler_product_inside_a_custom_products_container_sends_amount_only()
+{
+    sw_write_generated_config();
+    $invoices = new FakePaymosInvoices();
+    $handler = sw_handlers($invoices, new SwTestLogger())['6.5/6.6'];
+    $handler['change'](array(
+        'amount' => '40.00',
+        'line_items' => sw_test_handler_line_items('6.5/6.6', array(
+            array('id' => 'li_mug', 'type' => 'product', 'label' => 'Mug', 'quantity' => 1, 'unit_price' => 10.0),
+            array('id' => 'li_custom', 'type' => 'customized-products', 'label' => 'T-shirt', 'quantity' => 1, 'unit_price' => 30.0),
+            array('id' => 'li_shirt', 'type' => 'product', 'parent_id' => 'li_custom', 'label' => 'T-shirt', 'quantity' => 1, 'unit_price' => 25.0),
+            array('id' => 'li_text', 'type' => 'customized-products-option', 'parent_id' => 'li_custom', 'label' => 'Print text', 'quantity' => 1, 'unit_price' => 5.0),
+        )),
+    ));
+
+    $handler['pay']();
+
+    assertFalseValue(array_key_exists('products', $invoices->payloads[0]), 'the order goes out amount-only, not with the mug alone.');
+    assertSameValue('40', $invoices->payloads[0]['amount'], 'the grand total stays intact.');
 }
 
 function test_sw_payment_handler_filters_non_product_lines_and_falls_back_all_or_nothing()

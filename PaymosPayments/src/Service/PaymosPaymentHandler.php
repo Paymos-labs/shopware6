@@ -200,6 +200,23 @@ final class PaymosPaymentHandler implements AsynchronousPaymentHandlerInterface,
             return array();
         }
 
+        $types = array();
+        foreach ($lineItems as $lineItem) {
+            $id = is_object($lineItem) && method_exists($lineItem, 'getId') ? $lineItem->getId() : null;
+            if (is_string($id) && $id !== '') {
+                $types[$id] = method_exists($lineItem, 'getType') ? (string) $lineItem->getType() : '';
+            }
+        }
+        foreach ($lineItems as $lineItem) {
+            if (is_object($lineItem) && CheckoutProcessor::isProductInsideContainer(
+                method_exists($lineItem, 'getType') ? (string) $lineItem->getType() : '',
+                method_exists($lineItem, 'getParentId') ? $lineItem->getParentId() : null,
+                $types
+            )) {
+                return array();
+            }
+        }
+
         $products = array();
         foreach ($lineItems as $lineItem) {
             if (!is_object($lineItem)) {

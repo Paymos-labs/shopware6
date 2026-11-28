@@ -631,6 +631,53 @@ function test_sw_gateway_products_keep_quantity_price_and_variations_without_ima
     }
 }
 
+/**
+ * CMSP-52: the order read by SQL (Shopware 6.7 and retries) has the same
+ * Custom Products shape: a root `customized-products` row whose child row is
+ * the product. The list goes out amount-only instead of without that item.
+ */
+function test_sw_gateway_product_inside_a_custom_products_container_sends_amount_only()
+{
+    sw_write_generated_config();
+    $connection = new class {
+        public function fetchAssociative($sql, array $params)
+        {
+            return array(
+                'order_number' => '10002', 'amount' => '{"totalPrice":40}',
+                'currency' => 'USD', 'customer_id' => 'customer_1', 'sales_channel_id' => 'channel_1',
+            );
+        }
+
+        public function fetchAllAssociative($sql, array $params)
+        {
+            return array(
+                array('id' => "\x01mug", 'type' => 'product', 'parent_id' => null, 'label' => 'Mug',
+                    'quantity' => 1, 'price' => '{"unitPrice":"10.00"}', 'payload' => '{}'),
+                array('id' => "\x02custom", 'type' => 'customized-products', 'parent_id' => null, 'label' => 'T-shirt',
+                    'quantity' => 1, 'price' => '{"unitPrice":"30.00"}', 'payload' => '{}'),
+                array('id' => "\x03shirt", 'type' => 'product', 'parent_id' => "\x02custom", 'label' => 'T-shirt',
+                    'quantity' => 1, 'price' => '{"unitPrice":"25.00"}', 'payload' => '{}'),
+                array('id' => "\x04text", 'type' => 'customized-products-option', 'parent_id' => "\x02custom", 'label' => 'Print text',
+                    'quantity' => 1, 'price' => '{"unitPrice":"5.00"}', 'payload' => '{}'),
+            );
+        }
+    };
+    $gatewayClass = new ReflectionClass(\PaymosPayments\Service\ShopwareGateway::class);
+    $gateway = $gatewayClass->newInstanceWithoutConstructor();
+    $connectionProperty = $gatewayClass->getProperty('connection');
+    $connectionProperty->setValue($gateway, $connection);
+    $context = $gateway->orderContext('txn_1');
+
+    $invoices = new FakePaymosInvoices();
+    $processor = new CheckoutProcessor(new InMemoryInvoiceStore(), static function () use ($invoices) {
+        return new FakePaymosClient($invoices);
+    });
+    $processor->start(sw_order($context), sw_settings());
+
+    assertFalseValue(array_key_exists('products', $invoices->payloads[0]), 'the order goes out amount-only, not with the mug alone.');
+    assertSameValue('40', $invoices->payloads[0]['amount'], 'the grand total stays intact.');
+}
+
 function test_sw_checkout_sends_cart_and_falls_back_all_or_nothing()
 {
     sw_write_generated_config();

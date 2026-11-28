@@ -93,6 +93,8 @@ class SwRefundTransport implements \Paymos\Http\TransportInterface
     public $invoice;
     public $loseLock = false;
     public $failure = false;
+    /** Statuses the next refund reads answer with (temporary 401/403/404 after an accepted POST). */
+    public $refundReadFailures = [];
 
     public function __construct(RefundIntentStore $store, SwRefundDb $db)
     {
@@ -130,6 +132,11 @@ class SwRefundTransport implements \Paymos\Http\TransportInterface
             if ($this->timeout) { throw new RuntimeException('Lost response after accepted cash'); }
             $wire = ['withdrawal_id' => $id];
         } elseif (strpos($path, '/v1/invoices/') === 0) { $wire = $this->invoice; }
+        elseif ($this->refundReadFailures) {
+            $status = (int) array_shift($this->refundReadFailures);
+            return new \Paymos\Http\HttpResponse($status, json_encode(['type' => 'https://api.paymos.io/errors/unavailable', 'title' => 'Unavailable',
+                'status' => $status, 'detail' => 'Simulated temporary refund read failure', 'code' => 'refund_not_found']), ['content-type' => 'application/problem+json']);
+        }
         else { $wire = $this->withdrawals[basename($path)]; }
         if ($this->loseLock) { $this->db->owned = false; }
         return new \Paymos\Http\HttpResponse(200, json_encode($wire), ['Cache-Control' => 'private, no-store']);
@@ -208,6 +215,32 @@ function test_sw_refund_over20_then_full100_reorg_recompletion()
     assertSameValue(1, $db->native['documents'], 'No second document');
     assertSameValue(0, $db->native['stock'], 'No inventory mutation');
     sw_refund_throws(static function () use ($adapter, $native) { $adapter->overpayment($native->row['payment_key'], 'request-over-0002'); });
+}
+
+/**
+ * BUG-1347 (feature-audit 3.11): the server accepted the refund POST, but the
+ * reverse read right after it answered a temporary 401/403/404. The next
+ * reconcile reads again and the completed refund is projected.
+ */
+function test_sw_refund_accepted_refund_survives_a_temporary_reverse_read_failure()
+{
+    foreach ([401, 403, 404] as $status) {
+        list($db, $store, $native, $credentials, $http, $adapter) = sw_refunds();
+        $http->refundReadFailures = [$status];
+        $over = $adapter->overpayment($native->row['payment_key'], 'request-read-retry-' . $status);
+        assertSameValue(1, count($http->withdrawals), $status . ': the refund was accepted once.');
+
+        $id = array_keys($http->withdrawals)[0];
+        $http->withdrawals[$id]['status'] = 'completed';
+        $adapter->reconcile($over['operation_id']);
+
+        $after = $store->getIntent($over['operation_id']);
+        assertSameValue($id, $after->withdrawalId(), $status . ': the accepted refund is bound after the read recovers.');
+        assertSameValue('completed', $after->cashState(), $status . ': the cash refund is completed.');
+        assertSameValue('applied', $after->projectionState(), $status . ': the refund is projected into Shopware.');
+        assertSameValue(1, count($db->tables['paymos_refund_projection']), $status . ': one cash note.');
+        assertSameValue(1, count($http->withdrawals), $status . ': no second refund is sent.');
+    }
 }
 
 function test_sw_refund_unknown_restart_same_key_no_automatic_new_refund()

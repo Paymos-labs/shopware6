@@ -8,13 +8,14 @@ use Doctrine\DBAL\Connection;
 use Paymos\Plugin\AmountGuard;
 use Paymos\Plugin\EffectClaim;
 use Paymos\Plugin\NativeProjectionResult;
+use Paymos\Plugin\RefundCandidateStoreInterface;
 use Paymos\Plugin\RefundIntent;
 use Paymos\Plugin\RefundIntentPage;
 use Paymos\Plugin\RefundIntentStoreInterface;
 use Paymos\Plugin\RefundStates;
 use Paymos\Plugin\VerifiedRefund;
 
-class RefundIntentStore implements RefundIntentStoreInterface
+class RefundIntentStore implements RefundIntentStoreInterface, RefundCandidateStoreInterface
 {
     private $db;
     private $clock;
@@ -254,6 +255,23 @@ class RefundIntentStore implements RefundIntentStoreInterface
                 throw new \RuntimeException('refund_projection_conflict');
             }
             $this->update($intent, ['projection' => $result->toArray()]);
+        });
+    }
+
+    /** BUG-1347: unverified withdrawal id of an accepted POST whose reverse read failed for now; never a binding. */
+    public function recordReadCandidate(string $operationId, ?string $candidateWithdrawalId, int $retryCount): void
+    {
+        if ($candidateWithdrawalId !== null && trim($candidateWithdrawalId) === '') {
+            throw new \InvalidArgumentException('refund_candidate_invalid');
+        }
+        if ($retryCount < 0) {
+            throw new \InvalidArgumentException('refund_retry_count_invalid');
+        }
+        $this->transaction(function () use ($operationId, $candidateWithdrawalId, $retryCount) {
+            $this->update($this->getIntent($operationId), [
+                'candidate_withdrawal_id' => $candidateWithdrawalId,
+                'read_retry_count' => $retryCount,
+            ]);
         });
     }
 

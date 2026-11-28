@@ -168,7 +168,8 @@ final class ShopwareGateway implements ShopwareGatewayInterface
         }
 
         $rows = $this->connection->fetchAllAssociative(
-            'SELECT `li`.`type` AS `type`, '
+            'SELECT `li`.`id` AS `id`, '
+            . '  `li`.`type` AS `type`, '
             . '  `li`.`parent_id` AS `parent_id`, '
             . '  `li`.`label` AS `label`, '
             . '  `li`.`description` AS `description`, '
@@ -191,6 +192,22 @@ final class ShopwareGateway implements ShopwareGatewayInterface
 
         if (!is_array($rows)) {
             return array();
+        }
+
+        $types = array();
+        foreach ($rows as $line) {
+            if (is_array($line) && isset($line['id']) && is_string($line['id']) && $line['id'] !== '') {
+                $types[$line['id']] = isset($line['type']) ? (string) $line['type'] : '';
+            }
+        }
+        foreach ($rows as $line) {
+            if (is_array($line) && CheckoutProcessor::isProductInsideContainer(
+                isset($line['type']) ? (string) $line['type'] : '',
+                isset($line['parent_id']) ? $line['parent_id'] : null,
+                $types
+            )) {
+                return array();
+            }
         }
 
         $products = array();
